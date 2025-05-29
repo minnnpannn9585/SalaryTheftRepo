@@ -82,9 +82,12 @@ namespace Synty.AnimationBaseLocomotion.Samples
         #region Scripts/Objects
 
         [Header("External Components")]
-        [Tooltip("VR Camera Controller for camera behavior")]
+        [Tooltip("Camera Offset transform (from XR Origin)")]
         [SerializeField]
-        private VRCameraController vrCameraController;
+        private Transform cameraOffset;
+        [Tooltip("Main Camera transform for getting camera direction")]
+        [SerializeField]
+        private Camera mainCamera;
         [Tooltip("Animator component for controlling player animations")]
         [SerializeField]
         private Animator playerAnimator;
@@ -147,6 +150,25 @@ namespace Synty.AnimationBaseLocomotion.Samples
         [Tooltip("Movement deadzone for thumbstick")]
         [SerializeField]
         private float movementDeadzone = 0.1f;
+        [Tooltip("Body rotation speed when using right thumbstick")]
+        [SerializeField]
+        private float bodyRotationSpeed = 90f;
+        [Tooltip("Snap turn angle (0 = smooth turn)")]
+        [SerializeField]
+        private float snapTurnAngle = 30f;
+        [Tooltip("Use snap turning instead of smooth turning")]
+        [SerializeField]
+        private bool useSnapTurn = false;
+
+        // 新增：相机旋转控制
+        [Header("Camera Rotation Settings")]
+        [Tooltip("是否同时旋转相机视角")]
+        [SerializeField]
+        private bool rotateCameraWithBody = true;
+
+        [Tooltip("XR Origin transform（如果使用XR系统）")]
+        [SerializeField]
+        private Transform xrOrigin;
 
         #endregion
 
@@ -348,6 +370,14 @@ namespace Synty.AnimationBaseLocomotion.Samples
         private float rightGripValue;
         private float movementInputDuration;
 
+        // VR body rotation
+        private bool snapTurnTriggered;
+        private float lastSnapTurnTime;
+
+        // 新增：右摇杆旋转优先级控制
+        private float lastThumbstickRotationTime = 0f;
+        private bool isUsingThumbstickRotation = false;
+
         #endregion
 
         #region Base State Variables
@@ -372,21 +402,63 @@ namespace Synty.AnimationBaseLocomotion.Samples
         {
             targetLockOnPos = transform.Find("TargetLockOnPos");
 
+            if (targetLockOnPos == null)
+            {
+                GameObject lockOnTarget = new GameObject("TargetLockOnPos");
+                lockOnTarget.transform.SetParent(transform);
+                lockOnTarget.transform.localPosition = Vector3.zero;
+                targetLockOnPos = lockOnTarget.transform;
+            }
+
             isStrafing = alwaysStrafe;
 
+            // 新增：自动查找XR Origin
+            if (xrOrigin == null)
+            {
+                xrOrigin = FindXROrigin();
+            }
+
             SwitchState(AnimationState.Locomotion);
+        }
+
+        /// <summary>
+        /// 自动查找XR Origin
+        /// </summary>
+        private Transform FindXROrigin()
+        {
+            GameObject xrOriginObj = GameObject.Find("XR Origin");
+            if (xrOriginObj == null)
+            {
+                xrOriginObj = GameObject.Find("XR Rig");
+            }
+
+            if (xrOriginObj != null)
+            {
+                return xrOriginObj.transform;
+            }
+
+            if (cameraOffset != null)
+            {
+                Transform parent = cameraOffset.parent;
+                while (parent != null)
+                {
+                    if (parent.name.Contains("XR Origin") || parent.name.Contains("XR Rig"))
+                    {
+                        return parent;
+                    }
+                    parent = parent.parent;
+                }
+            }
+
+            return null;
         }
 
         #endregion
 
         #region VR Input
 
-        /// <summary>
-        /// Updates VR input states from XR controllers.
-        /// </summary>
         private void UpdateVRInput()
         {
-            // Get left controller input
             InputDevice leftDevice = InputDevices.GetDeviceAtXRNode(leftHandNode);
             if (leftDevice.isValid)
             {
@@ -396,7 +468,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
                 leftDevice.TryGetFeatureValue(sprintGrip, out leftGripValue);
             }
 
-            // Get right controller input
             InputDevice rightDevice = InputDevices.GetDeviceAtXRNode(rightHandNode);
             if (rightDevice.isValid)
             {
@@ -404,13 +475,13 @@ namespace Synty.AnimationBaseLocomotion.Samples
                 rightDevice.TryGetFeatureValue(sprintGrip, out rightGripValue);
             }
 
-            // Process jump input
+            ProcessBodyRotation();
+
             if (jumpButtonPressed)
             {
                 OnJumpPressed();
             }
 
-            // Process crouch input
             if (crouchButtonPressed != crouchKeyPressed)
             {
                 if (crouchButtonPressed)
@@ -423,7 +494,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
                 }
             }
 
-            // Process sprint input (based on grip)
             bool shouldSprint = (leftGripValue > sprintGripThreshold) || (rightGripValue > sprintGripThreshold);
             if (shouldSprint && !isSprinting)
             {
@@ -436,8 +506,83 @@ namespace Synty.AnimationBaseLocomotion.Samples
         }
 
         /// <summary>
-        /// Handles jump input from VR controller.
+        /// 修正版本：旋转整个角色和相机视角，支持优先级控制
         /// </summary>
+        private void ProcessBodyRotation()
+        {
+            if (rightThumbstick.magnitude < movementDeadzone)
+            {
+                snapTurnTriggered = false;
+                isUsingThumbstickRotation = false;
+                return;
+            }
+
+            isUsingThumbstickRotation = true;
+            lastThumbstickRotationTime = Time.time;
+
+            if (useSnapTurn)
+            {
+                if (!snapTurnTriggered && Time.time - lastSnapTurnTime > 0.3f)
+                {
+                    if (rightThumbstick.x > 0.7f)
+                    {
+                        RotatePlayerAndCamera(snapTurnAngle);
+                        snapTurnTriggered = true;
+                        lastSnapTurnTime = Time.time;
+                    }
+                    else if (rightThumbstick.x < -0.7f)
+                    {
+                        RotatePlayerAndCamera(-snapTurnAngle);
+                        snapTurnTriggered = true;
+                        lastSnapTurnTime = Time.time;
+                    }
+                }
+            }
+            else
+            {
+                if (bodyRotationSpeed > 0)
+                {
+                    float rotationInput = rightThumbstick.x;
+                    float rotationAmount = rotationInput * bodyRotationSpeed * Time.deltaTime;
+                    RotatePlayerAndCamera(rotationAmount);
+                }
+            }
+        }
+
+        private void RotatePlayerAndCamera(float angle)
+        {
+            if (!rotateCameraWithBody)
+            {
+                transform.Rotate(0, angle, 0);
+                return;
+            }
+
+            if (xrOrigin != null)
+            {
+                xrOrigin.Rotate(0, angle, 0);
+                transform.Rotate(0, angle, 0);
+            }
+            else if (cameraOffset != null)
+            {
+                transform.Rotate(0, angle, 0);
+                cameraOffset.Rotate(0, angle, 0);
+            }
+            else if (mainCamera != null)
+            {
+                transform.Rotate(0, angle, 0);
+                mainCamera.transform.Rotate(0, angle, 0);
+            }
+            else
+            {
+                transform.Rotate(0, angle, 0);
+            }
+        }
+
+        private void RotateBody(float angle)
+        {
+            RotatePlayerAndCamera(angle);
+        }
+
         private void OnJumpPressed()
         {
             switch (currentState)
@@ -451,59 +596,90 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Gets the primary movement input from VR controllers.
-        /// </summary>
-        /// <returns>Movement input vector</returns>
         public Vector2 GetMovementInput()
         {
-            // Use left thumbstick as primary movement input
             Vector2 input = leftThumbstick;
-            
-            // Apply deadzone
             if (input.magnitude < movementDeadzone)
             {
                 input = Vector2.zero;
             }
-
             return input;
         }
 
-        /// <summary>
-        /// Checks if movement input is currently detected.
-        /// </summary>
-        /// <returns>True if movement input detected</returns>
         public bool IsMovementInputDetected()
         {
             return GetMovementInput().magnitude > 0f;
         }
 
+        #region VR Camera Helper Methods
+
+        private Vector3 GetCameraForwardZeroedYNormalised()
+        {
+            if (mainCamera != null)
+            {
+                Vector3 forward = mainCamera.transform.forward;
+                forward.y = 0;
+                return forward.normalized;
+            }
+            return Vector3.forward;
+        }
+
+        private Vector3 GetCameraRightZeroedYNormalised()
+        {
+            if (mainCamera != null)
+            {
+                Vector3 right = mainCamera.transform.right;
+                right.y = 0;
+                return right.normalized;
+            }
+            return Vector3.right;
+        }
+
+        private Vector3 GetCameraPosition()
+        {
+            if (mainCamera != null)
+            {
+                return mainCamera.transform.position;
+            }
+            else if (cameraOffset != null)
+            {
+                return cameraOffset.position;
+            }
+            return transform.position;
+        }
+
+        private Vector3 GetCameraForward()
+        {
+            if (mainCamera != null)
+            {
+                return mainCamera.transform.forward;
+            }
+            return Vector3.forward;
+        }
+
+        private float GetCameraTiltX()
+        {
+            if (mainCamera != null)
+            {
+                return mainCamera.transform.eulerAngles.x;
+            }
+            return 0f;
+        }
+
         #endregion
 
-        #region Aim and Lock-on
-
-        /// <summary>
-        /// Activates the aim action of the player.
-        /// </summary>
         private void ActivateAim()
         {
             isAiming = true;
             isStrafing = !isSprinting;
         }
 
-        /// <summary>
-        /// Deactivates the aim action of the player.
-        /// </summary>
         private void DeactivateAim()
         {
             isAiming = false;
             isStrafing = !isSprinting && (alwaysStrafe || isLockedOn);
         }
 
-        /// <summary>
-        /// Adds an object to the list of target candidates.
-        /// </summary>
-        /// <param name="newTarget">The object to add.</param>
         public void AddTargetCandidate(GameObject newTarget)
         {
             if (newTarget != null)
@@ -512,10 +688,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Removes an object to the list of target candidates if present.
-        /// </summary>
-        /// <param name="targetToRemove">The object to remove if present.</param>
         public void RemoveTarget(GameObject targetToRemove)
         {
             if (currentTargetCandidates.Contains(targetToRemove))
@@ -524,29 +696,16 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Toggle the lock-on state.
-        /// </summary>
         public void ToggleLockOn()
         {
             EnableLockOn(!isLockedOn);
         }
 
-        /// <summary>
-        /// Sets the lock-on state to the given state.
-        /// </summary>
-        /// <param name="enable">The state to set lock-on to.</param>
         private void EnableLockOn(bool enable)
         {
             isLockedOn = enable;
             isStrafing = false;
-
             isStrafing = enable ? !isSprinting : alwaysStrafe || isAiming;
-
-            if (vrCameraController != null)
-            {
-                vrCameraController.LockOn(enable, targetLockOnPos);
-            }
 
             if (enable && currentLockOnTarget != null)
             {
@@ -562,18 +721,11 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Walking State
 
-        /// <summary>
-        /// Toggle the walking state.
-        /// </summary>
         public void ToggleWalk()
         {
             EnableWalk(!isWalking);
         }
 
-        /// <summary>
-        /// Sets the walking state to that of the passed in state.
-        /// </summary>
-        /// <param name="enable">The state to set.</param>
         private void EnableWalk(bool enable)
         {
             isWalking = enable && isGrounded && !isSprinting;
@@ -583,9 +735,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Sprinting State
 
-        /// <summary>
-        /// Activates sprinting behaviour.
-        /// </summary>
         private void ActivateSprint()
         {
             if (!isCrouching)
@@ -596,13 +745,9 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Deactivates sprinting behaviour.
-        /// </summary>
         private void DeactivateSprint()
         {
             isSprinting = false;
-
             if (alwaysStrafe || isAiming || isLockedOn)
             {
                 isStrafing = true;
@@ -613,13 +758,9 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Crouching State
 
-        /// <summary>
-        /// Activates crouching behaviour
-        /// </summary>
         private void ActivateCrouch()
         {
             crouchKeyPressed = true;
-
             if (isGrounded)
             {
                 CapsuleCrouchingSize(true);
@@ -628,13 +769,9 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Deactivates crouching behaviour.
-        /// </summary>
         private void DeactivateCrouch()
         {
             crouchKeyPressed = false;
-
             if (!cannotStandUp && !isSliding)
             {
                 CapsuleCrouchingSize(false);
@@ -642,26 +779,16 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Activates sliding behaviour.
-        /// </summary>
         public void ActivateSliding()
         {
             isSliding = true;
         }
 
-        /// <summary>
-        /// Deactivates sliding behaviour
-        /// </summary>
         public void DeactivateSliding()
         {
             isSliding = false;
         }
 
-        /// <summary>
-        /// Adjusts the capsule size for the player, depending on the passed in boolean value.
-        /// </summary>
-        /// <param name="crouching">Whether the player is crouching or not.</param>
         private void CapsuleCrouchingSize(bool crouching)
         {
             if (crouching)
@@ -684,20 +811,12 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region State Change
 
-        /// <summary>
-        /// Switch the current state to the passed in state.
-        /// </summary>
-        /// <param name="newState">The state to switch to.</param>
         private void SwitchState(AnimationState newState)
         {
             ExitCurrentState();
             EnterState(newState);
         }
 
-        /// <summary>
-        /// Enter the given state.
-        /// </summary>
-        /// <param name="stateToEnter">The state to enter.</param>
         private void EnterState(AnimationState stateToEnter)
         {
             currentState = stateToEnter;
@@ -721,9 +840,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Exit the current state.
-        /// </summary>
         private void ExitCurrentState()
         {
             switch (currentState)
@@ -765,9 +881,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Updates the animator to have the latest values.
-        /// </summary>
         private void UpdateAnimatorController()
         {
             playerAnimator.SetFloat(leanValueHash, leanValue);
@@ -777,9 +890,7 @@ namespace Synty.AnimationBaseLocomotion.Samples
             playerAnimator.SetFloat(bodyLookYHash, bodyLookY);
 
             playerAnimator.SetFloat(isStrafingHash, isStrafing ? 1.0f : 0.0f);
-
             playerAnimator.SetFloat(inclineAngleHash, inclineAngle);
-
             playerAnimator.SetFloat(moveSpeedHash, speed2D);
             playerAnimator.SetInteger(currentGaitHash, (int)currentGait);
 
@@ -814,17 +925,11 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Setup
 
-        /// <summary>
-        /// Performs the actions required when entering the base state.
-        /// </summary>
         private void EnterBaseState()
         {
             previousRotation = transform.forward;
         }
 
-        /// <summary>
-        /// Calculates the input type and sets the required internal states.
-        /// </summary>
         private void CalculateInput()
         {
             bool movementDetected = IsMovementInputDetected();
@@ -859,25 +964,21 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
 
             Vector2 moveInput = GetMovementInput();
-            
-            if (vrCameraController != null)
-            {
-                moveDirection = (vrCameraController.GetCameraForwardZeroedYNormalised() * moveInput.y)
-                    + (vrCameraController.GetCameraRightZeroedYNormalised() * moveInput.x);
-            }
-            else
-            {
-                moveDirection = new Vector3(moveInput.x, 0, moveInput.y);
-            }
+            Vector3 bodyForward = transform.forward;
+            Vector3 bodyRight = transform.right;
+
+            bodyForward.y = 0;
+            bodyRight.y = 0;
+            bodyForward.Normalize();
+            bodyRight.Normalize();
+
+            moveDirection = (bodyForward * moveInput.y) + (bodyRight * moveInput.x);
         }
 
         #endregion
 
         #region Movement
 
-        /// <summary>
-        /// Performs the movement of the player
-        /// </summary>
         private void Move()
         {
             characterController.Move(velocity * Time.deltaTime);
@@ -891,9 +992,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Applies gravity to the player.
-        /// </summary>
         private void ApplyGravity()
         {
             if (velocity.y > Physics.gravity.y)
@@ -902,9 +1000,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Calculates the movement direction of the player, and sets the relevant flags.
-        /// </summary>
         private void CalculateMoveDirection()
         {
             CalculateInput();
@@ -950,13 +1045,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             CalculateGait();
         }
 
-        /// <summary>
-        /// Calculates the character gait.
-        /// Calculate what the current locomotion gait is (Walk, Run, Sprint)
-        /// (for use in jumps, landings etc when deciding which animation to use)
-        /// Gait values will be:
-        /// Idle = 0, Walk = 1, Run = 2, Sprint = 3
-        /// </summary>
         private void CalculateGait()
         {
             float runThreshold = (walkSpeed + runSpeed) / 2;
@@ -980,25 +1068,11 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Calculates the face move direction based on the locomotion of the character.
-        /// </summary>
         private void FaceMoveDirection()
         {
             Vector3 characterForward = new Vector3(transform.forward.x, 0f, transform.forward.z).normalized;
             Vector3 characterRight = new Vector3(transform.right.x, 0f, transform.right.z).normalized;
             Vector3 directionForward = new Vector3(moveDirection.x, 0f, moveDirection.z).normalized;
-
-            if (vrCameraController != null)
-            {
-                cameraForward = vrCameraController.GetCameraForwardZeroedYNormalised();
-            }
-            else
-            {
-                cameraForward = Vector3.forward;
-            }
-            
-            Quaternion strafingTargetRotation = Quaternion.LookRotation(cameraForward);
 
             strafeAngle = characterForward != directionForward ? Vector3.SignedAngle(characterForward, directionForward, Vector3.up) : 0f;
 
@@ -1008,87 +1082,56 @@ namespace Synty.AnimationBaseLocomotion.Samples
             {
                 if (moveDirection.magnitude > 0.01)
                 {
-                    if (cameraForward != Vector3.zero)
+                    shuffleDirectionZ = Vector3.Dot(characterForward, directionForward);
+                    shuffleDirectionX = Vector3.Dot(characterRight, directionForward);
+
+                    UpdateStrafeDirection(
+                        Vector3.Dot(characterForward, directionForward),
+                        Vector3.Dot(characterRight, directionForward)
+                    );
+
+                    float targetValue = strafeAngle > forwardStrafeMinThreshold && strafeAngle < forwardStrafeMaxThreshold ? 1f : 0f;
+
+                    if (Mathf.Abs(forwardStrafe - targetValue) <= 0.001f)
                     {
-                        // Shuffle direction values - these are separate from the strafe values as we don't want to lerp
-                        shuffleDirectionZ = Vector3.Dot(characterForward, directionForward);
-                        shuffleDirectionX = Vector3.Dot(characterRight, directionForward);
-
-                        UpdateStrafeDirection(
-                            Vector3.Dot(characterForward, directionForward),
-                            Vector3.Dot(characterRight, directionForward)
-                        );
-                        cameraRotationOffset = Mathf.Lerp(cameraRotationOffset, 0f, rotationSmoothing * Time.deltaTime);
-
-                        float targetValue = strafeAngle > forwardStrafeMinThreshold && strafeAngle < forwardStrafeMaxThreshold ? 1f : 0f;
-
-                        if (Mathf.Abs(forwardStrafe - targetValue) <= 0.001f)
-                        {
-                            forwardStrafe = targetValue;
-                        }
-                        else
-                        {
-                            float t = Mathf.Clamp01(STRAFE_DIRECTION_DAMP_TIME * Time.deltaTime);
-                            forwardStrafe = Mathf.SmoothStep(forwardStrafe, targetValue, t);
-                        }
+                        forwardStrafe = targetValue;
                     }
-
-                    transform.rotation = Quaternion.Slerp(transform.rotation, strafingTargetRotation, rotationSmoothing * Time.deltaTime);
+                    else
+                    {
+                        float t = Mathf.Clamp01(STRAFE_DIRECTION_DAMP_TIME * Time.deltaTime);
+                        forwardStrafe = Mathf.SmoothStep(forwardStrafe, targetValue, t);
+                    }
                 }
                 else
                 {
                     UpdateStrafeDirection(1f, 0f);
-
-                    float t = 20 * Time.deltaTime;
-                    float newOffset = 0f;
-
-                    if (characterForward != cameraForward)
-                    {
-                        newOffset = Vector3.SignedAngle(characterForward, cameraForward, Vector3.up);
-                    }
-
-                    cameraRotationOffset = Mathf.Lerp(cameraRotationOffset, newOffset, t);
-
-                    if (Mathf.Abs(cameraRotationOffset) > 10)
-                    {
-                        isTurningInPlace = true;
-                    }
                 }
             }
             else
             {
                 UpdateStrafeDirection(1f, 0f);
-                cameraRotationOffset = Mathf.Lerp(cameraRotationOffset, 0f, rotationSmoothing * Time.deltaTime);
 
                 shuffleDirectionZ = 1;
                 shuffleDirectionX = 0;
 
                 Vector3 faceDirection = new Vector3(velocity.x, 0f, velocity.z);
 
-                if (faceDirection == Vector3.zero)
+                if (faceDirection.magnitude > 0.1f)
                 {
-                    return;
+                    transform.rotation = Quaternion.Slerp(
+                        transform.rotation,
+                        Quaternion.LookRotation(faceDirection),
+                        rotationSmoothing * Time.deltaTime
+                    );
                 }
-
-                transform.rotation = Quaternion.Slerp(
-                    transform.rotation,
-                    Quaternion.LookRotation(faceDirection),
-                    rotationSmoothing * Time.deltaTime
-                );
             }
         }
 
-        /// <summary>
-        /// Checks if the player has stopped moving.
-        /// </summary>
         private void CheckIfStopped()
         {
             isStopped = moveDirection.magnitude == 0 && speed2D < .5;
         }
 
-        /// <summary>
-        /// Checks if the player has started moving.
-        /// </summary>
         private void CheckIfStarting()
         {
             locomotionStartTimer = VariableOverrideDelayTimer(locomotionStartTimer);
@@ -1127,11 +1170,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             playerAnimator.SetBool(isStartingHash, isStarting);
         }
 
-        /// <summary>
-        /// Updates the strafe direction variables to those provided.
-        /// </summary>
-        /// <param name="TargetZ">The value to set for Z axis.</param>
-        /// <param name="TargetX">The value to set for X axis.</param>
         private void UpdateStrafeDirection(float TargetZ, float TargetX)
         {
             strafeDirectionZ = Mathf.Lerp(strafeDirectionZ, TargetZ, ANIMATION_DAMP_TIME * Time.deltaTime);
@@ -1144,9 +1182,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Ground Checks
 
-        /// <summary>
-        /// Checks if the character is grounded.
-        /// </summary>
         private void GroundedCheck()
         {
             Vector3 spherePosition = new Vector3(
@@ -1162,9 +1197,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Checks for ground incline and sets the required variables.
-        /// </summary>
         private void GroundInclineCheck()
         {
             float rayDistance = Mathf.Infinity;
@@ -1186,9 +1218,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             inclineAngle = Mathf.Lerp(inclineAngle, Mathf.Atan2(hitDifference.y, xPlaneLength) * Mathf.Rad2Deg, 20f * Time.deltaTime);
         }
 
-        /// <summary>
-        /// Checks the height of the ceiling above the player to make sure there is room to stand up if crouching.
-        /// </summary>
         private void CeilingHeightCheck()
         {
             float rayDistance = Mathf.Infinity;
@@ -1209,18 +1238,12 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Falling
 
-        /// <summary>
-        /// Resets the falling duration variables.
-        /// </summary>
         private void ResetFallingDuration()
         {
             fallStartTime = Time.time;
             fallingDuration = 0f;
         }
 
-        /// <summary>
-        /// Updates the falling duration variables.
-        /// </summary>
         private void UpdateFallingDuration()
         {
             fallingDuration = Time.time - fallStartTime;
@@ -1230,9 +1253,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Checks
 
-        /// <summary>
-        /// Checks if body turns can be enabled, and enabled or disables as required.
-        /// </summary>
         private void CheckEnableTurns()
         {
             headLookDelay = VariableOverrideDelayTimer(headLookDelay);
@@ -1241,9 +1261,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             enableBodyTurn = bodyLookDelay == 0.0f && !(isStarting || isTurningInPlace);
         }
 
-        /// <summary>
-        /// Checks if lean can be enabled, then enabled or disables as required.
-        /// </summary>
         private void CheckEnableLean()
         {
             leanDelay = VariableOverrideDelayTimer(leanDelay);
@@ -1254,12 +1271,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Lean and Offsets
 
-        /// <summary>
-        /// Calculates the required rotational additives based on the passed in parameters.
-        /// </summary>
-        /// <param name="leansActivated">If leans are activated or not.</param>
-        /// <param name="headLookActivated">If head look is activated or not.</param>
-        /// <param name="bodyLookActivated">If body look is activated or not.</param>
         private void CalculateRotationalAdditives(bool leansActivated, bool headLookActivated, bool bodyLookActivated)
         {
             if (headLookActivated || leansActivated || bodyLookActivated)
@@ -1322,12 +1333,7 @@ namespace Synty.AnimationBaseLocomotion.Samples
                 false
             );
 
-            float cameraTilt = 0f;
-            if (vrCameraController != null)
-            {
-                cameraTilt = vrCameraController.GetCameraTiltX();
-            }
-            
+            float cameraTilt = GetCameraTiltX();
             cameraTilt = (cameraTilt > 180f ? cameraTilt - 360f : cameraTilt) / -180;
             cameraTilt = Mathf.Clamp(cameraTilt, -0.1f, 1.0f);
             headLookY = cameraTilt;
@@ -1336,17 +1342,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             previousRotation = currentRotation;
         }
 
-        /// <summary>
-        /// Calculates a smoothed value between the given variable and target variable, from the given parameters.
-        /// </summary>
-        /// <param name="mainVariable">The variable to smooth.</param>
-        /// <param name="newValue">The target new value.</param>
-        /// <param name="maxRateChange">The max rate of change.</param>
-        /// <param name="smoothness">The smoothness amount.</param>
-        /// <param name="referenceCurve">The reference curve.</param>
-        /// <param name="referenceValue">The reference value.</param>
-        /// <param name="isMultiplier">If the value is a multiplier or not.</param>
-        /// <returns>The smoothed value.</returns>
         private float CalculateSmoothedValue(
             float mainVariable,
             float newValue,
@@ -1379,11 +1374,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             return changeVariable;
         }
 
-        /// <summary>
-        /// Provides a clamped override delay to avoid animation transition issues.
-        /// </summary>
-        /// <param name="timeVariable">The time variable to use.</param>
-        /// <returns>A clamped override delay.</returns>
         private float VariableOverrideDelayTimer(float timeVariable)
         {
             if (timeVariable > 0.0f)
@@ -1403,9 +1393,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Lock-on System
 
-        /// <summary>
-        /// Updates and sets the best target for lock on from the list of available targets.
-        /// </summary>
         private void UpdateBestTarget()
         {
             GameObject newBestTarget;
@@ -1432,11 +1419,11 @@ namespace Synty.AnimationBaseLocomotion.Samples
                     }
 
                     float distance = Vector3.Distance(transform.position, target.transform.position);
-                    float distanceScore = 1 / distance * 100;
+                    float distanceScore = distance > 0.01f ? (1 / distance * 100) : 100f;
 
-                    Vector3 cameraPos = vrCameraController != null ? vrCameraController.GetCameraPosition() : transform.position;
-                    Vector3 cameraForwardDir = vrCameraController != null ? vrCameraController.GetCameraForward() : transform.forward;
-                    
+                    Vector3 cameraPos = GetCameraPosition();
+                    Vector3 cameraForwardDir = GetCameraForward();
+
                     Vector3 targetDirection = target.transform.position - cameraPos;
                     float angleInView = Vector3.Dot(targetDirection.normalized, cameraForwardDir);
                     float angleScore = angleInView * 40;
@@ -1488,17 +1475,10 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Locomotion State
 
-        /// <summary>
-        /// Sets up the locomotion state upon entry.
-        /// </summary>
         private void EnterLocomotionState()
         {
-            // VR version doesn't use events for jump, handled in UpdateVRInput
         }
 
-        /// <summary>
-        /// Updates the locomotion state.
-        /// </summary>
         private void UpdateLocomotionState()
         {
             UpdateBestTarget();
@@ -1526,17 +1506,10 @@ namespace Synty.AnimationBaseLocomotion.Samples
             UpdateAnimatorController();
         }
 
-        /// <summary>
-        /// Performs the required actions when exiting the locomotion state.
-        /// </summary>
         private void ExitLocomotionState()
         {
-            // VR version cleanup if needed
         }
 
-        /// <summary>
-        /// Moves from the locomotion to the jump state.
-        /// </summary>
         private void LocomotionToJumpState()
         {
             SwitchState(AnimationState.Jump);
@@ -1546,21 +1519,13 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Jump State
 
-        /// <summary>
-        /// Sets up the Jump state upon entry.
-        /// </summary>
         private void EnterJumpState()
         {
             playerAnimator.SetBool(isJumpingAnimHash, true);
-
             isSliding = false;
-
             velocity = new Vector3(velocity.x, jumpForce, velocity.z);
         }
 
-        /// <summary>
-        /// updates the jump state.
-        /// </summary>
         private void UpdateJumpState()
         {
             UpdateBestTarget();
@@ -1581,9 +1546,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             UpdateAnimatorController();
         }
 
-        /// <summary>
-        /// Performs the required actions upon exiting the jump state.
-        /// </summary>
         private void ExitJumpState()
         {
             playerAnimator.SetBool(isJumpingAnimHash, false);
@@ -1593,21 +1555,14 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Fall State
 
-        /// <summary>
-        /// Sets up the fall state upon entry.
-        /// </summary>
         private void EnterFallState()
         {
             ResetFallingDuration();
             velocity.y = 0f;
-
             DeactivateCrouch();
             isSliding = false;
         }
 
-        /// <summary>
-        /// Updates the fall state.
-        /// </summary>
         private void UpdateFallState()
         {
             UpdateBestTarget();
@@ -1634,17 +1589,10 @@ namespace Synty.AnimationBaseLocomotion.Samples
 
         #region Crouch State
 
-        /// <summary>
-        /// Sets up the crouch state upon entry.
-        /// </summary>
         private void EnterCrouchState()
         {
-            // VR version doesn't use events for jump, handled in UpdateVRInput
         }
 
-        /// <summary>
-        /// Updates the crouch state.
-        /// </summary>
         private void UpdateCrouchState()
         {
             UpdateBestTarget();
@@ -1685,17 +1633,10 @@ namespace Synty.AnimationBaseLocomotion.Samples
             UpdateAnimatorController();
         }
 
-        /// <summary>
-        /// Performs the required actions upon exiting the crouch state.
-        /// </summary>
         private void ExitCrouchState()
         {
-            // VR version cleanup if needed
         }
 
-        /// <summary>
-        /// Moves from the crouch state to the jump state.
-        /// </summary>
         private void CrouchToJumpState()
         {
             if (!cannotStandUp)
@@ -1705,9 +1646,6 @@ namespace Synty.AnimationBaseLocomotion.Samples
             }
         }
 
-        /// <summary>
-        /// Moves from the crouch state to the locomotion state.
-        /// </summary>
         private void SwitchToLocomotionState()
         {
             DeactivateCrouch();
@@ -1719,66 +1657,94 @@ namespace Synty.AnimationBaseLocomotion.Samples
         #region Public Methods for External Access
 
         /// <summary>
-        /// Gets the current movement speed of the player.
+        /// 检查右摇杆是否正在控制旋转
         /// </summary>
-        /// <returns>Current movement speed</returns>
+        /// <returns>是否正在使用右摇杆旋转</returns>
+        public bool IsThumbstickControllingRotation()
+        {
+            return isUsingThumbstickRotation || (Time.time - lastThumbstickRotationTime < 0.5f);
+        }
+
+        /// <summary>
+        /// 手动旋转玩家和相机（供外部脚本调用）
+        /// </summary>
+        /// <param name="angle">旋转角度</param>
+        public void ManualRotatePlayerAndCamera(float angle)
+        {
+            RotatePlayerAndCamera(angle);
+        }
+
+        /// <summary>
+        /// 设置是否同时旋转相机
+        /// </summary>
+        /// <param name="rotateCamera">是否旋转相机</param>
+        public void SetRotateCameraWithBody(bool rotateCamera)
+        {
+            rotateCameraWithBody = rotateCamera;
+        }
+
+        /// <summary>
+        /// 设置XR Origin引用
+        /// </summary>
+        /// <param name="origin">XR Origin transform</param>
+        public void SetXROrigin(Transform origin)
+        {
+            xrOrigin = origin;
+        }
+
         public float GetCurrentSpeed()
         {
             return speed2D;
         }
 
-        /// <summary>
-        /// Gets the current gait state of the player.
-        /// </summary>
-        /// <returns>Current gait state</returns>
         public GaitState GetCurrentGait()
         {
             return currentGait;
         }
 
-        /// <summary>
-        /// Gets whether the player is currently grounded.
-        /// </summary>
-        /// <returns>True if grounded</returns>
         public bool IsGrounded()
         {
             return isGrounded;
         }
 
-        /// <summary>
-        /// Gets whether the player is currently crouching.
-        /// </summary>
-        /// <returns>True if crouching</returns>
         public bool IsCrouching()
         {
             return isCrouching;
         }
 
-        /// <summary>
-        /// Gets whether the player is currently sprinting.
-        /// </summary>
-        /// <returns>True if sprinting</returns>
         public bool IsSprinting()
         {
             return isSprinting;
         }
 
-        /// <summary>
-        /// Gets the current animation state.
-        /// </summary>
-        /// <returns>Current animation state</returns>
         public AnimationState GetCurrentAnimationState()
         {
             return currentState;
         }
 
-        /// <summary>
-        /// Sets the VR camera controller reference.
-        /// </summary>
-        /// <param name="controller">VR camera controller</param>
-        public void SetVRCameraController(VRCameraController controller)
+        public void SetCameraOffset(Transform offset)
         {
-            vrCameraController = controller;
+            cameraOffset = offset;
+        }
+
+        public void SetMainCamera(Camera camera)
+        {
+            mainCamera = camera;
+        }
+
+        public void ManualRotateBody(float angle)
+        {
+            RotateBody(angle);
+        }
+
+        public float GetBodyRotationY()
+        {
+            return transform.eulerAngles.y;
+        }
+
+        public void SetSnapTurnMode(bool useSnap)
+        {
+            useSnapTurn = useSnap;
         }
 
         #endregion
