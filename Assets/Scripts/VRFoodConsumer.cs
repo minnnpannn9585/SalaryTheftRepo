@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.UI;
 
 public class VRFoodConsumer : MonoBehaviour
 {
@@ -12,6 +13,9 @@ public class VRFoodConsumer : MonoBehaviour
     [Header("消费设置")]
     public float consumeDuration = 2f; // 吃东西的持续时间（秒）
     public GameObject eatingEffect; // 吃东西时的特效物体（挂在脸上）
+
+    [Header("UI设置")]
+    public Slider speedBoostSlider; // 加速buff倒计时滑块（拖拽你的Slider到这里）
 
     [Header("调试设置")]
     public bool showDebugLaser = true; // 是否显示激光射线
@@ -50,6 +54,12 @@ public class VRFoodConsumer : MonoBehaviour
         if (eatingEffect != null)
         {
             eatingEffect.SetActive(false);
+        }
+
+        // 初始化加速buff UI状态
+        if (speedBoostSlider != null)
+        {
+            speedBoostSlider.gameObject.SetActive(false);
         }
 
         // 获取Character Controller的原始移动速度
@@ -203,6 +213,14 @@ public class VRFoodConsumer : MonoBehaviour
         hasSpeedBoost = true;
         boostedMoveSpeed = originalMoveSpeed * multiplier;
 
+        // 显示加速buff UI
+        if (speedBoostSlider != null)
+        {
+            speedBoostSlider.gameObject.SetActive(true);
+            speedBoostSlider.maxValue = duration;
+            speedBoostSlider.value = duration;
+        }
+
         // 应用速度加成到移动组件
         // 注意：这里需要根据你实际使用的移动脚本来调整
         var moveProvider = GetComponent<ActionBasedContinuousMoveProvider>();
@@ -211,14 +229,33 @@ public class VRFoodConsumer : MonoBehaviour
             moveProvider.moveSpeed = boostedMoveSpeed;
         }
 
-        // 等待持续时间
-        yield return new WaitForSeconds(duration);
+        // 倒计时更新slider
+        float remainingTime = duration;
+        while (remainingTime > 0)
+        {
+            remainingTime -= Time.deltaTime;
+            remainingTime = Mathf.Max(0, remainingTime);
+
+            // 更新slider值
+            if (speedBoostSlider != null)
+            {
+                speedBoostSlider.value = remainingTime;
+            }
+
+            yield return null;
+        }
 
         // 恢复原始速度
         hasSpeedBoost = false;
         if (moveProvider != null)
         {
             moveProvider.moveSpeed = originalMoveSpeed;
+        }
+
+        // 隐藏加速buff UI
+        if (speedBoostSlider != null)
+        {
+            speedBoostSlider.gameObject.SetActive(false);
         }
 
         speedBoostCoroutine = null;
@@ -272,10 +309,39 @@ public class VRFoodConsumer : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 停止速度加成（如果需要中断的话）
+    /// </summary>
+    public void StopSpeedBoost()
+    {
+        if (hasSpeedBoost && speedBoostCoroutine != null)
+        {
+            StopCoroutine(speedBoostCoroutine);
+
+            // 恢复原始速度
+            hasSpeedBoost = false;
+            var moveProvider = GetComponent<ActionBasedContinuousMoveProvider>();
+            if (moveProvider != null)
+            {
+                moveProvider.moveSpeed = originalMoveSpeed;
+            }
+
+            // 隐藏加速buff UI
+            if (speedBoostSlider != null)
+            {
+                speedBoostSlider.gameObject.SetActive(false);
+            }
+
+            speedBoostCoroutine = null;
+            Debug.Log("速度加成效果被中断");
+        }
+    }
+
     // 属性访问器
     public bool IsEating => isEating;
     public bool HasSpeedBoost => hasSpeedBoost;
     public float CurrentMoveSpeed => hasSpeedBoost ? boostedMoveSpeed : originalMoveSpeed;
+    public float SpeedBoostTimeRemaining => speedBoostSlider != null ? speedBoostSlider.value : 0f;
 
     // 调试显示
     void OnDrawGizmosSelected()
