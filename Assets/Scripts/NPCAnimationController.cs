@@ -100,6 +100,7 @@ namespace Synty.AnimationBaseLocomotion.NPC
         [SerializeField] private float _playerDetectionAngle = 60f;
         [SerializeField] private float _playerDetectionDistance = 10f;
         [SerializeField] private string _playerTag = "Player";
+        [SerializeField] private LayerMask _blockingLayerMask = -1; // 新增：定义哪些图层会阻挡视线
 
         [Header("Vision System")]
         [SerializeField] private bool _enableHeadTurn = true;
@@ -182,6 +183,8 @@ namespace Synty.AnimationBaseLocomotion.NPC
         [SerializeField] private bool _hasObstacleAhead = false;
         [Tooltip("Currently detected player transform")]
         [SerializeField] private Transform _detectedPlayer;
+        [Tooltip("Is player blocked by obstacles?")]
+        [SerializeField] private bool _isPlayerBlocked = false; // 新增：玩家是否被遮挡
 
         // Path following
         private int _currentWaypointIndex = 0;
@@ -214,6 +217,7 @@ namespace Synty.AnimationBaseLocomotion.NPC
         public bool HasPlayerInSight => _hasPlayerInSight;
         public bool HasObstacleAhead => _hasObstacleAhead;
         public Transform DetectedPlayer => _detectedPlayer;
+        public bool IsPlayerBlocked => _isPlayerBlocked; // 新增
         public bool IsMoving => _speed2D > 0.1f;
         public bool IsGrounded => _isGrounded;
         public float ObstacleDetectionDistance => _obstacleDetectionDistance;
@@ -264,22 +268,41 @@ namespace Synty.AnimationBaseLocomotion.NPC
 
         private void OnDrawGizmosSelected()
         {
-            // Obstacle detection visualization
+            // 障碍物检测可视化
             Gizmos.color = _hasObstacleAhead ? Color.red : Color.green;
             Vector3 leftBoundary = Quaternion.AngleAxis(-_obstacleDetectionAngle / 2f, Vector3.up) * transform.forward * _obstacleDetectionDistance;
             Vector3 rightBoundary = Quaternion.AngleAxis(_obstacleDetectionAngle / 2f, Vector3.up) * transform.forward * _obstacleDetectionDistance;
             Gizmos.DrawRay(transform.position, leftBoundary);
             Gizmos.DrawRay(transform.position, rightBoundary);
 
-            // Player detection visualization
-            Gizmos.color = _hasPlayerInSight ? Color.blue : Color.yellow;
+            // 玩家检测可视化 - 根据遮挡状态改变颜色
+            if (_hasPlayerInSight)
+            {
+                Gizmos.color = _isPlayerBlocked ? Color.yellow : Color.blue; // 黄色表示被遮挡，蓝色表示可见
+            }
+            else
+            {
+                Gizmos.color = Color.gray; // 灰色表示未检测到
+            }
+
             Vector3 headDirection = GetHeadLookDirection();
             Vector3 leftPlayerBoundary = Quaternion.AngleAxis(-_playerDetectionAngle / 2f, Vector3.up) * headDirection * _playerDetectionDistance;
             Vector3 rightPlayerBoundary = Quaternion.AngleAxis(_playerDetectionAngle / 2f, Vector3.up) * headDirection * _playerDetectionDistance;
             Gizmos.DrawRay(transform.position, leftPlayerBoundary);
             Gizmos.DrawRay(transform.position, rightPlayerBoundary);
 
-            // Waypoint path visualization
+            // 检测范围球体
+            Gizmos.color = Color.cyan;
+            Gizmos.DrawWireSphere(transform.position, _playerDetectionDistance);
+
+            // 如果检测到玩家，绘制到玩家的连线
+            if (_detectedPlayer != null)
+            {
+                Gizmos.color = _isPlayerBlocked ? Color.yellow : Color.blue;
+                Gizmos.DrawLine(transform.position + Vector3.up * 1.7f, _detectedPlayer.position + Vector3.up * 1f);
+            }
+
+            // 路径点可视化
             if (_waypoints != null && _waypoints.Length > 1)
             {
                 Gizmos.color = Color.cyan;
@@ -470,51 +493,130 @@ namespace Synty.AnimationBaseLocomotion.NPC
             }
         }
 
+        // 修改后的ScanForPlayer方法
         private void ScanForPlayer()
         {
             _hasPlayerInSight = false;
+            _isPlayerBlocked = false; // 重置遮挡状态
             Transform previousPlayer = _detectedPlayer;
             _detectedPlayer = null;
 
-            Vector3 headDirection = GetHeadLookDirection();
+            // 获取头部朝向，如果头部转动被禁用，则使用身体朝向
+            Vector3 detectionDirection = _enableHeadTurn ? GetHeadLookDirection() : transform.forward;
+
+            // 使用OverlapSphere检测范围内的所有碰撞体
             Collider[] colliders = Physics.OverlapSphere(transform.position, _playerDetectionDistance);
+
+            Debug.Log($"NPC {gameObject.name}: 检测到 {colliders.Length} 个碰撞体"); // 调试信息
 
             foreach (Collider collider in colliders)
             {
+                // 检查标签是否匹配
                 if (collider.CompareTag(_playerTag))
                 {
-                    Vector3 directionToPlayer = (collider.transform.position - transform.position).normalized;
-                    float angleToPlayer = Vector3.Angle(headDirection, directionToPlayer);
+                    Debug.Log($"NPC {gameObject.name}: 找到玩家 {collider.name}"); // 调试信息
 
+                    Vector3 directionToPlayer = (collider.transform.position - transform.position).normalized;
+                    float angleToPlayer = Vector3.Angle(detectionDirection, directionToPlayer);
+
+                    Debug.Log($"NPC {gameObject.name}: 到玩家的角度 {angleToPlayer:F1}°, 检测角度范围 {_playerDetectionAngle / 2f:F1}°"); // 调试信息
+
+                    // 检查是否在检测角度范围内
                     if (angleToPlayer <= _playerDetectionAngle / 2f)
                     {
+                        // 从NPC眼部位置发射射线到玩家
+                        Vector3 eyePosition = transform.position + Vector3.up * 1.7f; // 假设眼部高度
+                        Vector3 playerCenter = collider.bounds.center; // 使用玩家碰撞体中心
+                        Vector3 rayDirection = (playerCenter - eyePosition).normalized;
+                        float distanceToPlayer = Vector3.Distance(eyePosition, playerCenter);
+
+                        Debug.DrawRay(eyePosition, rayDirection * distanceToPlayer, Color.blue, 0.1f); // 调试射线
+
                         RaycastHit hit;
-                        if (Physics.Raycast(transform.position + Vector3.up * 0.5f, directionToPlayer, out hit, _playerDetectionDistance))
+                        if (Physics.Raycast(eyePosition, rayDirection, out hit, distanceToPlayer, ~0)) // 检测所有图层
                         {
+                            Debug.Log($"NPC {gameObject.name}: 射线击中 {hit.collider.name}, 标签: {hit.collider.tag}"); // 调试信息
+
+                            // 如果射线首先击中的是玩家，说明没有遮挡
                             if (hit.collider.CompareTag(_playerTag))
                             {
                                 _hasPlayerInSight = true;
                                 _detectedPlayer = collider.transform;
+                                _isPlayerBlocked = false;
 
-                                // Lock onto player for head tracking
+                                Debug.Log($"NPC {gameObject.name}: 玩家在视线中，无遮挡"); // 调试信息
+
+                                // 如果之前没有锁定玩家，现在锁定
                                 if (!_isPlayerLocked)
                                 {
                                     LockOntoPlayer(collider.transform);
                                 }
 
-                                Debug.DrawLine(transform.position, collider.transform.position, Color.blue);
+                                Debug.DrawLine(transform.position, collider.transform.position, Color.green, 0.1f);
                                 break;
                             }
+                            else
+                            {
+                                // 射线击中了其他物体，检查是否为阻挡物
+                                if (IsBlockingObject(hit.collider))
+                                {
+                                    _hasPlayerInSight = true; // 能检测到玩家
+                                    _detectedPlayer = collider.transform;
+                                    _isPlayerBlocked = true; // 但被遮挡了
+
+                                    Debug.Log($"NPC {gameObject.name}: 玩家被 {hit.collider.name} 遮挡"); // 调试信息
+
+                                    // 仍然可以锁定玩家，但标记为被遮挡
+                                    if (!_isPlayerLocked)
+                                    {
+                                        LockOntoPlayer(collider.transform);
+                                    }
+
+                                    Debug.DrawLine(transform.position, hit.point, Color.yellow, 0.1f);
+                                    Debug.DrawLine(hit.point, collider.transform.position, Color.red, 0.1f);
+                                    break;
+                                }
+                            }
                         }
+                        else
+                        {
+                            // 射线没有击中任何东西，说明路径清晰
+                            _hasPlayerInSight = true;
+                            _detectedPlayer = collider.transform;
+                            _isPlayerBlocked = false;
+
+                            Debug.Log($"NPC {gameObject.name}: 射线未击中任何物体，玩家可见"); // 调试信息
+
+                            if (!_isPlayerLocked)
+                            {
+                                LockOntoPlayer(collider.transform);
+                            }
+
+                            Debug.DrawLine(transform.position, collider.transform.position, Color.green, 0.1f);
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        Debug.Log($"NPC {gameObject.name}: 玩家不在检测角度范围内"); // 调试信息
                     }
                 }
             }
 
-            // Release lock if player is no longer detected
+            // 如果之前检测到玩家但现在没有，释放锁定
             if (previousPlayer != null && _detectedPlayer == null && _isPlayerLocked)
             {
                 ReleasePlayerLock();
+                Debug.Log($"NPC {gameObject.name}: 释放玩家锁定"); // 调试信息
             }
+        }
+
+        // 新增方法：判断物体是否为阻挡物
+        private bool IsBlockingObject(Collider collider)
+        {
+            // 检查图层是否在阻挡图层遮罩中
+            int objectLayer = collider.gameObject.layer;
+            return (_blockingLayerMask.value & (1 << objectLayer)) != 0;
         }
 
         #endregion
@@ -1142,9 +1244,6 @@ namespace Synty.AnimationBaseLocomotion.NPC
         {
             rootNode?.Evaluate();
         }
-
-        // 删除这个方法，不再需要
-        // private BehaviorNode.NodeState ReactToPlayer() - 已移除
 
         private BehaviorNode.NodeState StationaryScanning()
         {
