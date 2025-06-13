@@ -3,11 +3,13 @@ using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.UI;
 
+
 public class VRFoodConsumer : MonoBehaviour
 {
     [Header("激光检测设置")]
     public Transform headTransform; // 头部Transform（通常是Main Camera）
     public float laserLength = 0.5f; // 激光长度
+    public float coneAngle = 30f; // 圆锥角度（度）
     public LayerMask foodLayerMask = -1; // 食物层级遮罩
 
     [Header("消费设置")]
@@ -83,34 +85,120 @@ public class VRFoodConsumer : MonoBehaviour
     }
 
     /// <summary>
-    /// 激光检测食物并自动消费
+    /// 激光检测食物并自动消费（圆锥形检测）
     /// </summary>
     private void DetectAndConsumeFood()
     {
         if (headTransform == null || isEating) return;
 
-        // 从头部向前发射激光
-        Ray ray = new Ray(headTransform.position, headTransform.forward);
-
-        // 调试用激光显示
+        // 调试用圆锥激光显示
         if (showDebugLaser)
         {
-            Debug.DrawRay(ray.origin, ray.direction * laserLength, Color.red);
+            DrawDebugCone();
         }
 
-        // 检测碰撞
-        RaycastHit hit;
-        if (Physics.Raycast(ray, out hit, laserLength, foodLayerMask))
+        // 圆锥形检测
+        FoodItem closestFood = DetectFoodInCone();
+
+        if (closestFood != null)
         {
-            FoodItem foodItem = hit.collider.GetComponent<FoodItem>();
-            if (foodItem != null)
+            // 激光碰到食物就直接开始吃
+            if (eatingCoroutine != null)
             {
-                // 激光碰到食物就直接开始吃
-                if (eatingCoroutine != null)
+                StopCoroutine(eatingCoroutine);
+            }
+            eatingCoroutine = StartCoroutine(ConsumeFood(closestFood));
+        }
+    }
+
+    /// <summary>
+    /// 在圆锥范围内检测食物
+    /// </summary>
+    /// <returns>最近的食物，如果没有则返回null</returns>
+    private FoodItem DetectFoodInCone()
+    {
+        Vector3 headPosition = headTransform.position;
+        Vector3 headForward = headTransform.forward;
+
+        // 使用OverlapSphere找到范围内的所有碰撞体
+        Collider[] colliders = Physics.OverlapSphere(headPosition, laserLength, foodLayerMask);
+
+        FoodItem closestFood = null;
+        float closestDistance = float.MaxValue;
+
+        foreach (Collider collider in colliders)
+        {
+            // 计算到食物的方向
+            Vector3 directionToFood = (collider.transform.position - headPosition).normalized;
+
+            // 计算角度
+            float angle = Vector3.Angle(headForward, directionToFood);
+
+            // 检查是否在圆锥角度内
+            if (angle <= coneAngle * 0.5f)
+            {
+                // 检查是否有食物组件
+                FoodItem foodItem = collider.GetComponent<FoodItem>();
+                if (foodItem != null)
                 {
-                    StopCoroutine(eatingCoroutine);
+                    // 找到最近的食物
+                    float distance = Vector3.Distance(headPosition, collider.transform.position);
+                    if (distance < closestDistance)
+                    {
+                        closestDistance = distance;
+                        closestFood = foodItem;
+                    }
                 }
-                eatingCoroutine = StartCoroutine(ConsumeFood(foodItem));
+            }
+        }
+
+        return closestFood;
+    }
+
+    /// <summary>
+    /// 绘制调试用的圆锥激光
+    /// </summary>
+    private void DrawDebugCone()
+    {
+        Vector3 headPosition = headTransform.position;
+        Vector3 headForward = headTransform.forward;
+        Vector3 headUp = headTransform.up;
+        Vector3 headRight = headTransform.right;
+
+        // 计算圆锥末端的圆形半径
+        float coneRadius = laserLength * Mathf.Tan(coneAngle * 0.5f * Mathf.Deg2Rad);
+
+        // 圆锥末端中心点
+        Vector3 coneEndCenter = headPosition + headForward * laserLength;
+
+        // 绘制中心线
+        Debug.DrawRay(headPosition, headForward * laserLength, Color.red);
+
+        // 绘制圆锥边缘线（8条线形成圆锥轮廓）
+        int segments = 8;
+        for (int i = 0; i < segments; i++)
+        {
+            float angle = (360f / segments) * i * Mathf.Deg2Rad;
+            Vector3 direction = headUp * Mathf.Sin(angle) + headRight * Mathf.Cos(angle);
+            Vector3 coneEdgePoint = coneEndCenter + direction * coneRadius;
+
+            // 从头部到圆锥边缘的线
+            Debug.DrawLine(headPosition, coneEdgePoint, Color.yellow);
+
+            // 圆锥末端的圆形轮廓
+            if (i < segments - 1)
+            {
+                float nextAngle = (360f / segments) * (i + 1) * Mathf.Deg2Rad;
+                Vector3 nextDirection = headUp * Mathf.Sin(nextAngle) + headRight * Mathf.Cos(nextAngle);
+                Vector3 nextConeEdgePoint = coneEndCenter + nextDirection * coneRadius;
+                Debug.DrawLine(coneEdgePoint, nextConeEdgePoint, Color.green);
+            }
+            else
+            {
+                // 连接最后一条线到第一个点
+                Vector3 firstDirection = headUp * Mathf.Sin(0) + headRight * Mathf.Cos(0);
+                Vector3 firstConeEdgePoint = coneEndCenter + firstDirection * coneRadius;
+                Debug.DrawLine(coneEdgePoint, firstConeEdgePoint, Color.green);
             }
         }
     }
@@ -270,21 +358,16 @@ public class VRFoodConsumer : MonoBehaviour
     {
         if (headTransform == null || isEating) return;
 
-        // 从头部向前发射激光
-        Ray ray = new Ray(headTransform.position, headTransform.forward);
-        RaycastHit hit;
+        // 使用圆锥形检测
+        FoodItem closestFood = DetectFoodInCone();
 
-        if (Physics.Raycast(ray, out hit, laserLength, foodLayerMask))
+        if (closestFood != null)
         {
-            FoodItem foodItem = hit.collider.GetComponent<FoodItem>();
-            if (foodItem != null)
+            if (eatingCoroutine != null)
             {
-                if (eatingCoroutine != null)
-                {
-                    StopCoroutine(eatingCoroutine);
-                }
-                eatingCoroutine = StartCoroutine(ConsumeFood(foodItem));
+                StopCoroutine(eatingCoroutine);
             }
+            eatingCoroutine = StartCoroutine(ConsumeFood(closestFood));
         }
     }
 
@@ -348,11 +431,47 @@ public class VRFoodConsumer : MonoBehaviour
     {
         if (headTransform != null)
         {
-            Gizmos.color = Color.red;
-            Gizmos.DrawRay(headTransform.position, headTransform.forward * laserLength);
+            Vector3 headPosition = headTransform.position;
+            Vector3 headForward = headTransform.forward;
+            Vector3 headUp = headTransform.up;
+            Vector3 headRight = headTransform.right;
 
+            // 计算圆锥末端的圆形半径
+            float coneRadius = laserLength * Mathf.Tan(coneAngle * 0.5f * Mathf.Deg2Rad);
+            Vector3 coneEndCenter = headPosition + headForward * laserLength;
+
+            // 绘制圆锥轮廓
+            Gizmos.color = Color.red;
+
+            // 中心线
+            Gizmos.DrawRay(headPosition, headForward * laserLength);
+
+            // 圆锥边缘线
+            int segments = 12;
+            Vector3[] conePoints = new Vector3[segments];
+
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = (360f / segments) * i * Mathf.Deg2Rad;
+                Vector3 direction = headUp * Mathf.Sin(angle) + headRight * Mathf.Cos(angle);
+                Vector3 coneEdgePoint = coneEndCenter + direction * coneRadius;
+                conePoints[i] = coneEdgePoint;
+
+                // 从头部到圆锥边缘的线
+                Gizmos.DrawLine(headPosition, coneEdgePoint);
+            }
+
+            // 绘制圆锥末端的圆形
             Gizmos.color = Color.yellow;
-            Gizmos.DrawWireSphere(headTransform.position + headTransform.forward * laserLength, 0.1f);
+            for (int i = 0; i < segments; i++)
+            {
+                int nextIndex = (i + 1) % segments;
+                Gizmos.DrawLine(conePoints[i], conePoints[nextIndex]);
+            }
+
+            // 绘制圆锥末端的中心点
+            Gizmos.color = Color.green;
+            Gizmos.DrawWireSphere(coneEndCenter, 0.05f);
         }
     }
 }
