@@ -14,6 +14,10 @@ public class FoodEffect
     public bool hasStressReduction = false;
     [Range(1f, 50f)]
     public float stressReduction = 10f; // 减少的压力值
+
+    [Header("粒子效果颜色")]
+    public Color particleStartColor = Color.white; // 粒子开始颜色
+    public Color particleEndColor = Color.yellow; // 粒子结束颜色
 }
 
 public class FoodItem : MonoBehaviour
@@ -53,5 +57,21 @@ public class FoodItem : MonoBehaviour
     public FoodEffect GetFoodEffect()
     {
         return foodEffect;
+    }
+
+    /// <summary>
+    /// 获取粒子效果的开始颜色
+    /// </summary>
+    public Color GetParticleStartColor()
+    {
+        return foodEffect.particleStartColor;
+    }
+
+    /// <summary>
+    /// 获取粒子效果的结束颜色
+    /// </summary>
+    public Color GetParticleEndColor()
+    {
+        return foodEffect.particleEndColor;
     }
 }
