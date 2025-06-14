@@ -1,49 +1,51 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 public class SecurityCamera : MonoBehaviour
 {
-    [Header("Ğı×ªÉèÖÃ")]
-    public Transform head; // ÒªĞı×ªµÄÍ·²¿¶ÔÏó
-    public float rotationSpeed = 30f; // Ğı×ªËÙ¶È£¨¶È/Ãë£©
-    public float maxRotationAngle = 60f; // ×î´óĞı×ª½Ç¶È£¨×óÓÒ¸÷60¶È£©
+    [Header("æ—‹è½¬è®¾ç½®")]
+    public Transform head; // è¦æ—‹è½¬çš„å¤´éƒ¨å¯¹è±¡
+    public float rotationSpeed = 30f; // æ—‹è½¬é€Ÿåº¦ï¼ˆåº¦/ç§’ï¼‰
+    public float maxRotationAngle = 60f; // æœ€å¤§æ—‹è½¬è§’åº¦ï¼ˆå·¦å³å„60åº¦ï¼‰
 
-    [Header("¼ì²âÉèÖÃ")]
-    public float detectionRange = 10f; // ¼ì²â·¶Î§
-    public float detectionAngle = 45f; // ¼ì²â½Ç¶È£¨Ô²×¶µÄ½Ç¶È£©
-    public float detectXAngle = 0f; // ¼ì²â·¶Î§ÔÚXÖáÉÏµÄĞı×ª½Ç¶È£¨ÏòÉÏ/ÏòÏÂÇãĞ±£©
-    public string playerTag = "Player"; // Íæ¼Ò±êÇ©
+    [Header("æ£€æµ‹è®¾ç½®")]
+    public float detectionRange = 10f; // æ£€æµ‹èŒƒå›´
+    public float detectionAngle = 45f; // æ£€æµ‹è§’åº¦ï¼ˆåœ†é”¥çš„è§’åº¦ï¼‰
+    public float detectXAngle = 0f; // æ£€æµ‹èŒƒå›´åœ¨Xè½´ä¸Šçš„æ—‹è½¬è§’åº¦ï¼ˆå‘ä¸Š/å‘ä¸‹å€¾æ–œï¼‰
+    public string playerTag = "Player"; // ç©å®¶æ ‡ç­¾
 
-    [Header("SpotlightÉèÖÃ")]
-    public Light spotlight; // Spotlight×é¼ş
-    public Color normalColor = Color.yellow; // Õı³£×´Ì¬ÑÕÉ«
-    public Color alertColor = Color.red; // ·¢ÏÖÍæ¼ÒÊ±µÄÑÕÉ«
-    [Tooltip("ÊÇ·ñ½«¼ì²â²ÎÊıÍ¬²½µ½Spotlight£¨¶ø²»ÊÇ´ÓSpotlightÍ¬²½µ½¼ì²â£©")]
-    public bool syncToSpotlight = false; // ÊÇ·ñ½«¼ì²â²ÎÊıÍ¬²½µ½Spotlight
+    [Header("Spotlightè®¾ç½®")]
+    public Light spotlight; // Spotlightç»„ä»¶
+    public Color normalColor = Color.yellow; // æ­£å¸¸çŠ¶æ€é¢œè‰²
+    public Color alertColor = Color.red; // å‘ç°ç©å®¶æ—¶çš„é¢œè‰²
+    public Color slackingColor = Color.magenta; // å‘ç°ç©å®¶æ‘¸é±¼æ—¶çš„é¢œè‰²
+    [Tooltip("æ˜¯å¦å°†æ£€æµ‹å‚æ•°åŒæ­¥åˆ°Spotlightï¼ˆè€Œä¸æ˜¯ä»SpotlightåŒæ­¥åˆ°æ£€æµ‹ï¼‰")]
+    public bool syncToSpotlight = false; // æ˜¯å¦å°†æ£€æµ‹å‚æ•°åŒæ­¥åˆ°Spotlight
 
-    [Header("µ÷ÊÔÉèÖÃ")]
-    public bool enableDebug = true; // ÆôÓÃµ÷ÊÔĞÅÏ¢
+    [Header("è°ƒè¯•è®¾ç½®")]
+    public bool enableDebug = true; // å¯ç”¨è°ƒè¯•ä¿¡æ¯
 
-    [Header("×´Ì¬")]
-    public bool playerDetected = false; // ÊÇ·ñ¼ì²âµ½Íæ¼Ò
+    [Header("çŠ¶æ€")]
+    public bool playerDetected = false; // æ˜¯å¦æ£€æµ‹åˆ°ç©å®¶
+    public bool playerSlacking = false; // æ˜¯å¦æ£€æµ‹åˆ°ç©å®¶åœ¨æ‘¸é±¼
 
     private float currentRotation = 0f;
     private bool rotatingRight = true;
 
     void Start()
     {
-        // ¼ì²éÊÇ·ñ·ÖÅäÁËhead¶ÔÏó
+        // æ£€æŸ¥æ˜¯å¦åˆ†é…äº†headå¯¹è±¡
         if (head == null)
         {
-            Debug.LogWarning("Head¶ÔÏóÎ´·ÖÅä£¬½«Ê¹ÓÃ½Å±¾¹ÒÔØµÄ¶ÔÏó×÷ÎªÄ¬ÈÏÖµ");
+            Debug.LogWarning("Headå¯¹è±¡æœªåˆ†é…ï¼Œå°†ä½¿ç”¨è„šæœ¬æŒ‚è½½çš„å¯¹è±¡ä½œä¸ºé»˜è®¤å€¼");
             head = transform;
         }
 
-        // ³õÊ¼»¯SpotlightÑÕÉ«
+        // åˆå§‹åŒ–Spotlighté¢œè‰²
         if (spotlight != null)
         {
             spotlight.color = normalColor;
 
-            // Èç¹ûÆôÓÃÍ¬²½µ½Spotlight£¬ÉèÖÃSpotlight²ÎÊı
+            // å¦‚æœå¯ç”¨åŒæ­¥åˆ°Spotlightï¼Œè®¾ç½®Spotlightå‚æ•°
             if (syncToSpotlight)
             {
                 spotlight.range = detectionRange;
@@ -54,27 +56,27 @@ public class SecurityCamera : MonoBehaviour
 
     void Update()
     {
-        // Èç¹ûÆôÓÃÍ¬²½µ½Spotlight£¬½«¼ì²â²ÎÊıÓ¦ÓÃµ½Spotlight
+        // å¦‚æœå¯ç”¨åŒæ­¥åˆ°Spotlightï¼Œå°†æ£€æµ‹å‚æ•°åº”ç”¨åˆ°Spotlight
         if (syncToSpotlight && spotlight != null)
         {
             spotlight.range = detectionRange;
             spotlight.spotAngle = detectionAngle;
         }
-        // ÏÖÔÚ¼ì²â²ÎÊıÍêÈ«ÓÉInspectorÖĞµÄÖµ¿ØÖÆ£¬²»»á±»¸²¸Ç
+        // ç°åœ¨æ£€æµ‹å‚æ•°å®Œå…¨ç”±Inspectorä¸­çš„å€¼æ§åˆ¶ï¼Œä¸ä¼šè¢«è¦†ç›–
 
-        // Ğı×ªÉãÏñÍ·
+        // æ—‹è½¬æ‘„åƒå¤´
         RotateCamera();
 
-        // ¼ì²âÍæ¼Ò
+        // æ£€æµ‹ç©å®¶
         DetectPlayer();
 
-        // ¸üĞÂSpotlightÑÕÉ«
+        // æ›´æ–°Spotlighté¢œè‰²
         UpdateSpotlightColor();
     }
 
     void RotateCamera()
     {
-        // ¼ÆËãĞı×ª
+        // è®¡ç®—æ—‹è½¬
         float rotationDelta = rotationSpeed * Time.deltaTime;
 
         if (rotatingRight)
@@ -96,32 +98,33 @@ public class SecurityCamera : MonoBehaviour
             }
         }
 
-        // Ó¦ÓÃĞı×ªµ½head¶ÔÏó
+        // åº”ç”¨æ—‹è½¬åˆ°headå¯¹è±¡
         head.localRotation = Quaternion.Euler(0, currentRotation, 0);
     }
 
     void DetectPlayer()
     {
         playerDetected = false;
+        playerSlacking = false;
 
-        // ¼ÆËã¼ì²â·½Ïò£¨Ó¦ÓÃXÖáĞı×ª£©
+        // è®¡ç®—æ£€æµ‹æ–¹å‘ï¼ˆåº”ç”¨Xè½´æ—‹è½¬ï¼‰
         Vector3 detectionForward = Quaternion.AngleAxis(detectXAngle, head.right) * head.forward;
 
-        // Ê¹ÓÃÔ²×¶ĞÎ¼ì²â·¶Î§
+        // ä½¿ç”¨åœ†é”¥å½¢æ£€æµ‹èŒƒå›´
         Collider[] colliders = Physics.OverlapSphere(transform.position, detectionRange);
 
         if (enableDebug)
         {
-            Debug.Log($"[SecurityCamera] ¼ì²âµ½ {colliders.Length} ¸öÅö×²ÌåÔÚ {detectionRange}m ·¶Î§ÄÚ");
-            Debug.Log($"[SecurityCamera] ¼ì²â·½Ïò: {detectionForward}");
-            Debug.Log($"[SecurityCamera] ¼ì²â½Ç¶È: {detectionAngle}¡ã");
+            Debug.Log($"[SecurityCamera] æ£€æµ‹åˆ° {colliders.Length} ä¸ªç¢°æ’ä½“åœ¨ {detectionRange}m èŒƒå›´å†…");
+            Debug.Log($"[SecurityCamera] æ£€æµ‹æ–¹å‘: {detectionForward}");
+            Debug.Log($"[SecurityCamera] æ£€æµ‹è§’åº¦: {detectionAngle}Â°");
         }
 
         foreach (Collider collider in colliders)
         {
             if (enableDebug)
             {
-                Debug.Log($"[SecurityCamera] ¼ì²éÅö×²Ìå: {collider.name}, Tag: '{collider.tag}'");
+                Debug.Log($"[SecurityCamera] æ£€æŸ¥ç¢°æ’ä½“: {collider.name}, Tag: '{collider.tag}'");
             }
 
             if (collider.CompareTag(playerTag))
@@ -130,23 +133,41 @@ public class SecurityCamera : MonoBehaviour
                 float distanceToPlayer = directionToPlayer.magnitude;
                 directionToPlayer.Normalize();
 
-                // ¼ì²éÊÇ·ñÔÚÔ²×¶½Ç¶ÈÄÚ
+                // æ£€æŸ¥æ˜¯å¦åœ¨åœ†é”¥è§’åº¦å†…
                 float angleToPlayer = Vector3.Angle(detectionForward, directionToPlayer);
 
                 if (enableDebug)
                 {
-                    Debug.Log($"[SecurityCamera] ÕÒµ½Íæ¼Ò: {collider.name}");
-                    Debug.Log($"[SecurityCamera] Íæ¼Ò¾àÀë: {distanceToPlayer:F2}m");
-                    Debug.Log($"[SecurityCamera] Íæ¼Ò½Ç¶È: {angleToPlayer:F2}¡ã, ×î´óÔÊĞí½Ç¶È: {detectionAngle / 2f:F2}¡ã");
+                    Debug.Log($"[SecurityCamera] æ‰¾åˆ°ç©å®¶: {collider.name}");
+                    Debug.Log($"[SecurityCamera] ç©å®¶è·ç¦»: {distanceToPlayer:F2}m");
+                    Debug.Log($"[SecurityCamera] ç©å®¶è§’åº¦: {angleToPlayer:F2}Â°, æœ€å¤§å…è®¸è§’åº¦: {detectionAngle / 2f:F2}Â°");
                 }
 
-                // Ö»¼ì²é½Ç¶È£¬ÎŞÊÓÕÏ°­Îï
+                // åªæ£€æŸ¥è§’åº¦ï¼Œæ— è§†éšœç¢ç‰©
                 if (angleToPlayer <= detectionAngle / 2f)
                 {
                     playerDetected = true;
+
+                    // æ£€æŸ¥ç©å®¶æ˜¯å¦åœ¨æ‘¸é±¼
+                    CharacterStatus characterStatus = collider.GetComponent<CharacterStatus>();
+                    if (characterStatus != null && characterStatus.isSlackingAtWork)
+                    {
+                        playerSlacking = true;
+
+                        // å°è¯•å¯¹ç©å®¶è¿›è¡Œæƒ©ç½š
+                        bool penaltyApplied = characterStatus.ApplyPenalty();
+
+                        if (enableDebug)
+                        {
+                            string penaltyMsg = penaltyApplied ? "æƒ©ç½šå·²æ‰§è¡Œ" : "æƒ©ç½šå†·å´ä¸­";
+                            Debug.Log($"[SecurityCamera] ğŸš¨ æ£€æµ‹åˆ°ç©å®¶åœ¨æ‘¸é±¼ï¼{penaltyMsg}");
+                        }
+                    }
+
                     if (enableDebug)
                     {
-                        Debug.Log("[SecurityCamera] ? Íæ¼Ò¼ì²â³É¹¦£¡£¨ÎŞÊÓÕÏ°­Îï£©");
+                        string status = playerSlacking ? "æ‘¸é±¼ä¸­" : "æ­£å¸¸çŠ¶æ€";
+                        Debug.Log($"[SecurityCamera] âœ… ç©å®¶æ£€æµ‹æˆåŠŸï¼çŠ¶æ€: {status}");
                     }
                     break;
                 }
@@ -154,7 +175,7 @@ public class SecurityCamera : MonoBehaviour
                 {
                     if (enableDebug)
                     {
-                        Debug.Log($"[SecurityCamera] ? Íæ¼Ò½Ç¶È {angleToPlayer:F2}¡ã ³¬³ö·¶Î§ {detectionAngle / 2f:F2}¡ã");
+                        Debug.Log($"[SecurityCamera] âŒ ç©å®¶è§’åº¦ {angleToPlayer:F2}Â° è¶…å‡ºèŒƒå›´ {detectionAngle / 2f:F2}Â°");
                     }
                 }
             }
@@ -162,12 +183,12 @@ public class SecurityCamera : MonoBehaviour
 
         if (enableDebug && colliders.Length == 0)
         {
-            Debug.Log("[SecurityCamera] ?? Ã»ÓĞ¼ì²âµ½ÈÎºÎÅö×²Ìå£¬¼ì²édetectionRangeÉèÖÃ");
+            Debug.Log("[SecurityCamera] âš ï¸ æ²¡æœ‰æ£€æµ‹åˆ°ä»»ä½•ç¢°æ’ä½“ï¼Œæ£€æŸ¥detectionRangeè®¾ç½®");
         }
 
         if (enableDebug && !playerDetected)
         {
-            Debug.Log("[SecurityCamera] ? ×îÖÕ½á¹û£ºÎ´¼ì²âµ½Íæ¼Ò");
+            Debug.Log("[SecurityCamera] âŒ æœ€ç»ˆç»“æœï¼šæœªæ£€æµ‹åˆ°ç©å®¶");
         }
     }
 
@@ -175,43 +196,65 @@ public class SecurityCamera : MonoBehaviour
     {
         if (spotlight != null)
         {
-            spotlight.color = playerDetected ? alertColor : normalColor;
+            if (playerSlacking)
+            {
+                spotlight.color = slackingColor; // æ‘¸é±¼æ—¶ç”¨ç‰¹æ®Šé¢œè‰²
+            }
+            else if (playerDetected)
+            {
+                spotlight.color = alertColor; // æ£€æµ‹åˆ°ç©å®¶ä½†æ²¡æ‘¸é±¼ç”¨è­¦æŠ¥é¢œè‰²
+            }
+            else
+            {
+                spotlight.color = normalColor; // æ­£å¸¸çŠ¶æ€
+            }
         }
     }
 
-    // ÔÚSceneÊÓÍ¼ÖĞ»æÖÆÔ²×¶ĞÎ¼ì²â·¶Î§
+    // åœ¨Sceneè§†å›¾ä¸­ç»˜åˆ¶åœ†é”¥å½¢æ£€æµ‹èŒƒå›´
     void OnDrawGizmosSelected()
     {
         if (Application.isPlaying)
         {
-            Gizmos.color = playerDetected ? alertColor : normalColor;
+            if (playerSlacking)
+            {
+                Gizmos.color = slackingColor;
+            }
+            else if (playerDetected)
+            {
+                Gizmos.color = alertColor;
+            }
+            else
+            {
+                Gizmos.color = normalColor;
+            }
         }
         else
         {
             Gizmos.color = normalColor;
         }
 
-        // »æÖÆÔ²×¶ĞÎ¼ì²â·¶Î§
+        // ç»˜åˆ¶åœ†é”¥å½¢æ£€æµ‹èŒƒå›´
         DrawConeGizmo();
     }
 
     void DrawConeGizmo()
     {
-        // Èç¹ûÃ»ÓĞhead¶ÔÏó£¬Ê¹ÓÃÄ¬ÈÏµÄtransform
+        // å¦‚æœæ²¡æœ‰headå¯¹è±¡ï¼Œä½¿ç”¨é»˜è®¤çš„transform
         Transform targetTransform = head != null ? head : transform;
 
-        // ¼ÆËã¼ì²â·½Ïò£¨Ó¦ÓÃXÖáĞı×ª£©
+        // è®¡ç®—æ£€æµ‹æ–¹å‘ï¼ˆåº”ç”¨Xè½´æ—‹è½¬ï¼‰
         Vector3 forward = Quaternion.AngleAxis(detectXAngle, targetTransform.right) * targetTransform.forward;
         Vector3 position = transform.position;
 
-        // ¼ÆËãÔ²×¶µ×²¿µÄ°ë¾¶
+        // è®¡ç®—åœ†é”¥åº•éƒ¨çš„åŠå¾„
         float coneRadius = detectionRange * Mathf.Tan(detectionAngle * 0.5f * Mathf.Deg2Rad);
 
-        // »æÖÆÔ²×¶µÄÂÖÀªÏß
+        // ç»˜åˆ¶åœ†é”¥çš„è½®å»“çº¿
         int segments = 16;
         Vector3[] circlePoints = new Vector3[segments];
 
-        // ¼ÆËãÔ²×¶µ×²¿Ô²µÄµã
+        // è®¡ç®—åœ†é”¥åº•éƒ¨åœ†çš„ç‚¹
         Vector3 endPoint = position + forward * detectionRange;
         Vector3 right = Vector3.Cross(forward, Vector3.up).normalized;
         Vector3 up = Vector3.Cross(right, forward).normalized;
@@ -222,33 +265,33 @@ public class SecurityCamera : MonoBehaviour
             Vector3 circlePoint = endPoint + (right * Mathf.Cos(angle) + up * Mathf.Sin(angle)) * coneRadius;
             circlePoints[i] = circlePoint;
 
-            // »æÖÆ´Ó¶¥µãµ½Ô²ÖÜµÄÏß
+            // ç»˜åˆ¶ä»é¡¶ç‚¹åˆ°åœ†å‘¨çš„çº¿
             Gizmos.DrawLine(position, circlePoint);
 
-            // »æÖÆÔ²ÖÜ
+            // ç»˜åˆ¶åœ†å‘¨
             if (i > 0)
             {
                 Gizmos.DrawLine(circlePoints[i - 1], circlePoints[i]);
             }
         }
 
-        // ±ÕºÏÔ²ÖÜ
+        // é—­åˆåœ†å‘¨
         if (segments > 0)
         {
             Gizmos.DrawLine(circlePoints[segments - 1], circlePoints[0]);
         }
 
-        // »æÖÆÖĞĞÄÖáÏß
+        // ç»˜åˆ¶ä¸­å¿ƒè½´çº¿
         Gizmos.DrawLine(position, endPoint);
 
-        // »æÖÆÒ»Ğ©¸¨ÖúÔ²È¦À´ÏÔÊ¾Ô²×¶ÌåµÄĞÎ×´
+        // ç»˜åˆ¶ä¸€äº›è¾…åŠ©åœ†åœˆæ¥æ˜¾ç¤ºåœ†é”¥ä½“çš„å½¢çŠ¶
         for (int i = 1; i <= 3; i++)
         {
             float distance = detectionRange * i / 4f;
             float radius = distance * Mathf.Tan(detectionAngle * 0.5f * Mathf.Deg2Rad);
             Vector3 center = position + forward * distance;
 
-            // »æÖÆ¸¨ÖúÔ²È¦
+            // ç»˜åˆ¶è¾…åŠ©åœ†åœˆ
             for (int j = 0; j < segments; j++)
             {
                 float angle1 = (float)j / segments * 2f * Mathf.PI;
@@ -261,14 +304,25 @@ public class SecurityCamera : MonoBehaviour
             }
         }
 
-        // »æÖÆXÖáĞı×ªµÄ²Î¿¼Ïß£¨ÏÔÊ¾Ô­Ê¼³¯ÏòºÍµ÷ÕûºóµÄ³¯Ïò£©
+        // ç»˜åˆ¶Xè½´æ—‹è½¬çš„å‚è€ƒçº¿ï¼ˆæ˜¾ç¤ºåŸå§‹æœå‘å’Œè°ƒæ•´åçš„æœå‘ï¼‰
         Gizmos.color = Color.gray;
         Gizmos.DrawLine(position, position + targetTransform.forward * detectionRange * 0.5f);
 
-        // »Ö¸´Ô­À´µÄÑÕÉ«
+        // æ¢å¤åŸæ¥çš„é¢œè‰²
         if (Application.isPlaying)
         {
-            Gizmos.color = playerDetected ? alertColor : normalColor;
+            if (playerSlacking)
+            {
+                Gizmos.color = slackingColor;
+            }
+            else if (playerDetected)
+            {
+                Gizmos.color = alertColor;
+            }
+            else
+            {
+                Gizmos.color = normalColor;
+            }
         }
         else
         {

@@ -15,7 +15,9 @@ public class GameLogicSystem : MonoBehaviour
 
     [Header("薪资设置")]
     [SerializeField] private int baseSalary = 800; // 基础薪资
+    [SerializeField] private int currentSalaryDeduction = 0; // 当前扣除的薪资
     [SerializeField] private TextMeshProUGUI salaryText; // 薪资显示文本
+    [SerializeField] private TextMeshProUGUI deductionText; // 扣除薪资显示文本（可选）
 
     [Header("职位设置")]
     [SerializeField] private TextMeshProUGUI positionText; // 职位显示文本
@@ -46,6 +48,7 @@ public class GameLogicSystem : MonoBehaviour
     public static event Action<float> OnWorkTimeChanged; // 工作时间变化事件
     public static event Action<float> OnWorkProgressChanged; // 工作进度变化事件
     public static event Action<int> OnSalaryChanged; // 薪资变化事件
+    public static event Action<int> OnSalaryDeducted; // 薪资扣除事件
     public static event Action<JobLevel> OnJobLevelChanged; // 职位变化事件
     public static event Action<float> OnStressChanged; // 压力变化事件
 
@@ -168,6 +171,92 @@ public class GameLogicSystem : MonoBehaviour
     }
 
     /// <summary>
+    /// 扣除薪资（外部调用）
+    /// </summary>
+    /// <param name="amount">扣除的金额</param>
+    /// <returns>是否成功扣除</returns>
+    public bool DeductSalary(int amount)
+    {
+        if (amount <= 0)
+        {
+            Debug.LogWarning("[GameLogicSystem] 扣除金额必须大于0");
+            return false;
+        }
+
+        // 计算当前实际薪资
+        int actualSalary = GetActualSalary();
+
+        // 检查是否有足够的薪资可以扣除
+        if (actualSalary <= 0)
+        {
+            Debug.LogWarning("[GameLogicSystem] 当前薪资已为0，无法继续扣除");
+            return false;
+        }
+
+        // 执行扣除
+        currentSalaryDeduction += amount;
+
+        // 确保扣除后的薪资不会低于0
+        if (GetActualSalary() < 0)
+        {
+            currentSalaryDeduction = currentSalary;
+        }
+
+        Debug.Log($"[GameLogicSystem] 扣除薪资 ${amount}，当前总扣除: ${currentSalaryDeduction}，剩余薪资: ${GetActualSalary()}");
+
+        // 更新UI
+        UpdateSalary();
+
+        // 触发事件
+        OnSalaryDeducted?.Invoke(amount);
+
+        return true;
+    }
+
+    /// <summary>
+    /// 增加薪资（外部调用，比如奖励）
+    /// </summary>
+    /// <param name="amount">增加的金额</param>
+    public void AddSalary(int amount)
+    {
+        if (amount <= 0)
+        {
+            Debug.LogWarning("[GameLogicSystem] 增加金额必须大于0");
+            return;
+        }
+
+        // 减少扣除的薪资，而不是直接增加基础薪资
+        currentSalaryDeduction = Mathf.Max(0, currentSalaryDeduction - amount);
+
+        Debug.Log($"[GameLogicSystem] 增加薪资 ${amount}，当前总扣除: ${currentSalaryDeduction}，当前薪资: ${GetActualSalary()}");
+
+        // 更新UI
+        UpdateSalary();
+
+        // 触发事件
+        OnSalaryChanged?.Invoke(GetActualSalary());
+    }
+
+    /// <summary>
+    /// 获取当前实际薪资（基础薪资 - 扣除金额）
+    /// </summary>
+    /// <returns>实际薪资</returns>
+    public int GetActualSalary()
+    {
+        return Mathf.Max(0, currentSalary - currentSalaryDeduction);
+    }
+
+    /// <summary>
+    /// 重置薪资扣除（用于新的工作周期）
+    /// </summary>
+    public void ResetSalaryDeduction()
+    {
+        currentSalaryDeduction = 0;
+        UpdateSalary();
+        Debug.Log("[GameLogicSystem] 薪资扣除已重置");
+    }
+
+    /// <summary>
     /// 检查升职条件
     /// </summary>
     private void CheckForPromotion()
@@ -207,13 +296,20 @@ public class GameLogicSystem : MonoBehaviour
     private void UpdateSalary()
     {
         currentSalary = baseSalary * (int)Mathf.Pow(2, (int)currentJobLevel);
+        int actualSalary = GetActualSalary();
 
         if (salaryText != null)
         {
-            salaryText.text = $"${currentSalary:N0}";
+            salaryText.text = $"${actualSalary:N0}";
         }
 
-        OnSalaryChanged?.Invoke(currentSalary);
+        // 如果有扣除薪资显示文本，更新它
+        if (deductionText != null)
+        {
+            deductionText.text = $"-${currentSalaryDeduction:N0}";
+        }
+
+        OnSalaryChanged?.Invoke(actualSalary);
     }
 
     /// <summary>
@@ -358,7 +454,9 @@ public class GameLogicSystem : MonoBehaviour
     public float WorkProgress => workProgress;
     public float WorkTimeRemaining => workTimeRemaining;
     public float WorkTimePercentage => workTimeRemaining / maxWorkTime;
-    public int CurrentSalary => currentSalary;
+    public int CurrentSalary => currentSalary; // 基础薪资
+    public int ActualSalary => GetActualSalary(); // 实际薪资
+    public int TotalDeduction => currentSalaryDeduction; // 总扣除金额
     public JobLevel CurrentJobLevel => currentJobLevel;
     public float StressLevel => stressLevel;
     public float StressPercentage => stressLevel / 100f;
@@ -372,10 +470,12 @@ public class GameLogicSystem : MonoBehaviour
     {
         if (!showDebugInfo) return;
 
-        GUILayout.BeginArea(new Rect(10, 10, 300, 200));
+        GUILayout.BeginArea(new Rect(10, 10, 350, 250));
         GUILayout.Label($"工作时间剩余: {workTimeRemaining:F1}秒");
         GUILayout.Label($"工作进度: {workProgress:F1}%");
-        GUILayout.Label($"当前薪资: ¥{currentSalary:N0}");
+        GUILayout.Label($"基础薪资: ${currentSalary:N0}");
+        GUILayout.Label($"扣除金额: ${currentSalaryDeduction:N0}");
+        GUILayout.Label($"实际薪资: ${GetActualSalary():N0}");
         GUILayout.Label($"职位等级: {currentJobLevel}");
         GUILayout.Label($"压力指数: {stressLevel:F1}%");
         GUILayout.EndArea();

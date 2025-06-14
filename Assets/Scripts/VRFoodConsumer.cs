@@ -25,6 +25,7 @@ public class VRFoodConsumer : MonoBehaviour
     // 私有变量
     private CharacterController characterController;
     private GameLogicSystem gameLogicSystem;
+    private CharacterStatus characterStatus; // 添加角色状态引用
 
     // 消费状态
     private bool isEating = false; // 是否正在吃东西
@@ -41,6 +42,7 @@ public class VRFoodConsumer : MonoBehaviour
         // 获取组件
         characterController = GetComponent<CharacterController>();
         gameLogicSystem = FindObjectOfType<GameLogicSystem>();
+        characterStatus = GetComponent<CharacterStatus>(); // 获取角色状态组件
 
         // 如果没有指定头部Transform，尝试找到Main Camera
         if (headTransform == null)
@@ -211,6 +213,12 @@ public class VRFoodConsumer : MonoBehaviour
     {
         isEating = true;
 
+        // 设置摸鱼状态为true
+        if (characterStatus != null)
+        {
+            characterStatus.isSlackingAtWork = true;
+        }
+
         // 显示吃东西特效
         if (eatingEffect != null)
         {
@@ -264,6 +272,13 @@ public class VRFoodConsumer : MonoBehaviour
         Debug.Log($"食用完成: {foodItem.foodName}");
 
         isEating = false;
+
+        // 设置摸鱼状态为false
+        if (characterStatus != null)
+        {
+            characterStatus.isSlackingAtWork = false;
+        }
+
         eatingCoroutine = null;
     }
 
@@ -387,6 +402,13 @@ public class VRFoodConsumer : MonoBehaviour
             }
 
             isEating = false;
+
+            // 设置摸鱼状态为false
+            if (characterStatus != null)
+            {
+                characterStatus.isSlackingAtWork = false;
+            }
+
             eatingCoroutine = null;
             Debug.Log("停止食用");
         }
