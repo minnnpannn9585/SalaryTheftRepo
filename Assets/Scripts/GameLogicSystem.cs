@@ -51,6 +51,7 @@ public class GameLogicSystem : MonoBehaviour
     public static event Action<int> OnSalaryDeducted; // 薪资扣除事件
     public static event Action<JobLevel> OnJobLevelChanged; // 职位变化事件
     public static event Action<float> OnStressChanged; // 压力变化事件
+    public static event Action<float> OnStressPenalty; // 压力惩罚事件（外部增加压力时触发）
 
     void Start()
     {
@@ -150,12 +151,19 @@ public class GameLogicSystem : MonoBehaviour
     /// 增加压力
     /// </summary>
     /// <param name="amount">增加的压力值</param>
-    public void AddStress(float amount)
+    /// <param name="isExternalCall">是否为外部调用（非自然增长）</param>
+    public void AddStress(float amount, bool isExternalCall = false)
     {
         stressLevel += amount;
         stressLevel = Mathf.Clamp(stressLevel, 0f, 100f);
         UpdateStressUI();
         OnStressChanged?.Invoke(stressLevel);
+
+        // 如果是外部调用（如惩罚），触发额外的闪烁效果
+        if (isExternalCall)
+        {
+            OnStressPenalty?.Invoke(amount);
+        }
     }
 
     /// <summary>
