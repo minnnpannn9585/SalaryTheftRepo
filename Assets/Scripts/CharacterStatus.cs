@@ -3,12 +3,17 @@
 public class CharacterStatus : MonoBehaviour
 {
     [Header("状态设置")]
-    public float stressLevel;
     public bool isSlackingAtWork;
 
     [Header("惩罚设置")]
     public int penaltyAmount = 50; // 每次扣工资的金额
     public float penaltyCooldown = 3f; // 惩罚冷却时间（秒）
+    public float stressPenalty = 20f; // 每次惩罚增加的压力值
+
+    [Header("音效设置")]
+    [SerializeField] private AudioSource penaltyAudioSource; // 惩罚音效播放器
+    [SerializeField] private AudioClip penaltySound; // 惩罚音效文件
+    [SerializeField, Range(0f, 1f)] private float penaltyVolume = 1f; // 惩罚音效音量
 
     [Header("调试设置")]
     public bool enablePenaltyDebug = true; // 启用惩罚调试信息
@@ -16,6 +21,18 @@ public class CharacterStatus : MonoBehaviour
     // 私有变量
     private float lastPenaltyTime = -999f; // 上次惩罚的时间
     private GameLogicSystem gameLogicSystem; // 游戏逻辑系统引用
+
+    /// <summary>
+    /// 手动测试惩罚音效（用于调试）
+    /// </summary>
+    [ContextMenu("测试惩罚音效")]
+    public void TestPenaltySound()
+    {
+        PlayPenaltySound();
+    }
+
+    // 属性访问器：获取当前压力值（从GameLogicSystem）
+    public float stressLevel => gameLogicSystem != null ? gameLogicSystem.StressLevel : 0f;
 
     void Start()
     {
@@ -59,9 +76,15 @@ public class CharacterStatus : MonoBehaviour
             // 更新上次惩罚时间
             lastPenaltyTime = Time.time;
 
+            // 增加压力值（标记为外部调用）
+            gameLogicSystem.AddStress(stressPenalty, true);
+
+            // 播放惩罚音效
+            PlayPenaltySound();
+
             if (enablePenaltyDebug)
             {
-                Debug.Log($"[CharacterStatus] 🚨 惩罚生效！扣除工资: ${penaltyAmount}");
+                Debug.Log($"[CharacterStatus] 🚨 惩罚生效！扣除工资: ${penaltyAmount}, 增加压力: {stressPenalty}");
             }
         }
         else
@@ -92,6 +115,50 @@ public class CharacterStatus : MonoBehaviour
     {
         float remainingTime = penaltyCooldown - (Time.time - lastPenaltyTime);
         return Mathf.Max(0f, remainingTime);
+    }
+
+    /// <summary>
+    /// 播放惩罚音效
+    /// </summary>
+    private void PlayPenaltySound()
+    {
+        // 方式1：使用AudioSource组件播放
+        if (penaltyAudioSource != null && penaltySound != null)
+        {
+            penaltyAudioSource.clip = penaltySound;
+            penaltyAudioSource.volume = penaltyVolume;
+            penaltyAudioSource.Play();
+
+            if (enablePenaltyDebug)
+            {
+                Debug.Log("[CharacterStatus] 🔊 播放惩罚音效");
+            }
+        }
+        // 方式2：使用AudioSource直接播放（如果已经设置了clip）
+        else if (penaltyAudioSource != null)
+        {
+            penaltyAudioSource.volume = penaltyVolume;
+            penaltyAudioSource.Play();
+
+            if (enablePenaltyDebug)
+            {
+                Debug.Log("[CharacterStatus] 🔊 播放惩罚音效（使用预设clip）");
+            }
+        }
+        // 方式3：使用AudioSource.PlayClipAtPoint（3D音效）
+        else if (penaltySound != null)
+        {
+            AudioSource.PlayClipAtPoint(penaltySound, transform.position, penaltyVolume);
+
+            if (enablePenaltyDebug)
+            {
+                Debug.Log("[CharacterStatus] 🔊 播放惩罚音效（3D位置音效）");
+            }
+        }
+        else if (enablePenaltyDebug)
+        {
+            Debug.LogWarning("[CharacterStatus] ⚠️ 无法播放惩罚音效：未设置AudioSource或AudioClip");
+        }
     }
 
     /// <summary>

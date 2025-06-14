@@ -16,9 +16,15 @@ public class StressFlashEffect : MonoBehaviour
     public float minAlpha = 0.1f; // 最小透明度（压力70%时）
     public float maxAlpha = 0.5f; // 最大透明度（压力100%时）
 
+    [Header("惩罚闪烁设置")]
+    public float penaltyFlashAlpha = 0.8f; // 惩罚闪烁的透明度
+    public float penaltyFlashDuration = 0.15f; // 每次惩罚闪烁持续时间
+    public int penaltyFlashCount = 2; // 惩罚闪烁次数
+
     // 私有变量
     private bool isFlashing = false;
     private Coroutine flashCoroutine;
+    private Coroutine penaltyFlashCoroutine;
     private GameLogicSystem gameLogicSystem;
     private float currentFlashSpeed;
     private float currentMaxAlpha;
@@ -38,12 +44,15 @@ public class StressFlashEffect : MonoBehaviour
 
         // 订阅压力变化事件
         GameLogicSystem.OnStressChanged += OnStressChanged;
+        // 订阅压力惩罚事件
+        GameLogicSystem.OnStressPenalty += OnStressPenalty;
     }
 
     void OnDestroy()
     {
         // 取消订阅事件
         GameLogicSystem.OnStressChanged -= OnStressChanged;
+        GameLogicSystem.OnStressPenalty -= OnStressPenalty;
     }
 
     /// <summary>
@@ -65,6 +74,80 @@ public class StressFlashEffect : MonoBehaviour
             // 更新闪烁强度
             UpdateFlashIntensity(newStressLevel);
         }
+    }
+
+    /// <summary>
+    /// 当压力因惩罚增加时调用
+    /// </summary>
+    /// <param name="penaltyAmount">惩罚增加的压力值</param>
+    private void OnStressPenalty(float penaltyAmount)
+    {
+        // 触发惩罚闪烁效果
+        if (penaltyFlashCoroutine != null)
+        {
+            StopCoroutine(penaltyFlashCoroutine);
+        }
+        penaltyFlashCoroutine = StartCoroutine(PenaltyFlashCoroutine());
+    }
+
+    /// <summary>
+    /// 惩罚闪烁协程
+    /// </summary>
+    private IEnumerator PenaltyFlashCoroutine()
+    {
+        // 保存当前透明度
+        float originalAlpha = flashImage != null ? flashImage.color.a : 0f;
+
+        for (int i = 0; i < penaltyFlashCount; i++)
+        {
+            // 快速闪烁到高透明度
+            yield return StartCoroutine(FastFadeToAlpha(penaltyFlashAlpha, penaltyFlashDuration * 0.3f));
+
+            // 快速淡出
+            yield return StartCoroutine(FastFadeToAlpha(0f, penaltyFlashDuration * 0.7f));
+
+            // 如果不是最后一次闪烁，稍微等待一下
+            if (i < penaltyFlashCount - 1)
+            {
+                yield return new WaitForSeconds(penaltyFlashDuration * 0.2f);
+            }
+        }
+
+        // 恢复到原始透明度（如果正在正常闪烁的话）
+        if (isFlashing && flashImage != null)
+        {
+            Color color = flashImage.color;
+            color.a = originalAlpha;
+            flashImage.color = color;
+        }
+
+        penaltyFlashCoroutine = null;
+    }
+
+    /// <summary>
+    /// 快速淡化到指定透明度（用于惩罚闪烁）
+    /// </summary>
+    /// <param name="targetAlpha">目标透明度</param>
+    /// <param name="duration">持续时间</param>
+    private IEnumerator FastFadeToAlpha(float targetAlpha, float duration)
+    {
+        if (flashImage == null) yield break;
+
+        Color color = flashImage.color;
+        float startAlpha = color.a;
+        float time = 0f;
+
+        while (time < duration)
+        {
+            time += Time.deltaTime;
+            float alpha = Mathf.Lerp(startAlpha, targetAlpha, time / duration);
+            color.a = alpha;
+            flashImage.color = color;
+            yield return null;
+        }
+
+        color.a = targetAlpha;
+        flashImage.color = color;
     }
 
     /// <summary>
@@ -96,8 +179,8 @@ public class StressFlashEffect : MonoBehaviour
             flashCoroutine = null;
         }
 
-        // 淡出效果
-        if (flashImage != null)
+        // 淡出效果（但不影响正在进行的惩罚闪烁）
+        if (flashImage != null && penaltyFlashCoroutine == null)
             StartCoroutine(FadeOut());
     }
 
@@ -135,6 +218,8 @@ public class StressFlashEffect : MonoBehaviour
     /// <param name="targetAlpha">目标透明度</param>
     private IEnumerator FadeToAlpha(float targetAlpha)
     {
+        if (flashImage == null) yield break;
+
         Color color = flashImage.color;
         float startAlpha = color.a;
         float time = 0f;
@@ -159,5 +244,13 @@ public class StressFlashEffect : MonoBehaviour
     private IEnumerator FadeOut()
     {
         yield return StartCoroutine(FadeToAlpha(0f));
+    }
+
+    /// <summary>
+    /// 手动触发惩罚闪烁（用于测试或外部调用）
+    /// </summary>
+    public void TriggerPenaltyFlash()
+    {
+        OnStressPenalty(0f);
     }
 }
