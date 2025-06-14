@@ -3,7 +3,6 @@ using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit;
 using UnityEngine.UI;
 
-
 public class VRFoodConsumer : MonoBehaviour
 {
     [Header("激光检测设置")]
@@ -14,7 +13,8 @@ public class VRFoodConsumer : MonoBehaviour
 
     [Header("消费设置")]
     public float consumeDuration = 2f; // 吃东西的持续时间（秒）
-    public GameObject eatingEffect; // 吃东西时的特效物体（挂在脸上）
+    public ParticleSystem eatingEffectPrefab; // 吃东西时的粒子系统预制件
+    public Transform eatingEffectSpawnPoint; // 粒子系统生成位置（例如嘴巴位置）
 
     [Header("UI设置")]
     public Slider speedBoostSlider; // 加速buff倒计时滑块（拖拽你的Slider到这里）
@@ -30,6 +30,7 @@ public class VRFoodConsumer : MonoBehaviour
     // 消费状态
     private bool isEating = false; // 是否正在吃东西
     private Coroutine eatingCoroutine;
+    private ParticleSystem currentEatingEffect; // 当前实例化的粒子系统
 
     // 速度加成相关
     private bool hasSpeedBoost = false;
@@ -54,10 +55,10 @@ public class VRFoodConsumer : MonoBehaviour
             }
         }
 
-        // 初始化特效状态
-        if (eatingEffect != null)
+        // 如果没有指定粒子系统生成点，使用头部Transform
+        if (eatingEffectSpawnPoint == null)
         {
-            eatingEffect.SetActive(false);
+            eatingEffectSpawnPoint = headTransform;
         }
 
         // 初始化加速buff UI状态
@@ -206,6 +207,68 @@ public class VRFoodConsumer : MonoBehaviour
     }
 
     /// <summary>
+    /// 实例化吃东西的粒子特效
+    /// </summary>
+    private void StartEatingEffect()
+    {
+        if (eatingEffectPrefab != null && eatingEffectSpawnPoint != null)
+        {
+            // 在指定位置实例化粒子系统
+            currentEatingEffect = Instantiate(eatingEffectPrefab, eatingEffectSpawnPoint.position, eatingEffectSpawnPoint.rotation);
+
+            // 将粒子系统设置为eatingEffectSpawnPoint的子对象，这样会跟随移动
+            currentEatingEffect.transform.SetParent(eatingEffectSpawnPoint);
+
+            // 播放粒子系统
+            currentEatingEffect.Play();
+
+            Debug.Log("开始播放吃东西粒子特效");
+        }
+        else
+        {
+            Debug.LogWarning("吃东西粒子特效预制件或生成点未设置");
+        }
+    }
+
+    /// <summary>
+    /// 停止并销毁吃东西的粒子特效
+    /// </summary>
+    private void StopEatingEffect()
+    {
+        if (currentEatingEffect != null)
+        {
+            // 停止粒子系统
+            currentEatingEffect.Stop();
+
+            // 等待粒子系统完全停止后销毁（可选）
+            // 如果你想立即销毁，直接使用 Destroy
+            StartCoroutine(DestroyEffectAfterStop(currentEatingEffect));
+
+            currentEatingEffect = null;
+
+            Debug.Log("停止吃东西粒子特效");
+        }
+    }
+
+    /// <summary>
+    /// 等待粒子系统停止后销毁
+    /// </summary>
+    private IEnumerator DestroyEffectAfterStop(ParticleSystem effect)
+    {
+        // 等待粒子系统不再播放
+        while (effect != null && effect.isPlaying)
+        {
+            yield return null;
+        }
+
+        // 销毁粒子系统GameObject
+        if (effect != null)
+        {
+            Destroy(effect.gameObject);
+        }
+    }
+
+    /// <summary>
     /// 消费食物协程（带延迟）
     /// </summary>
     /// <param name="foodItem">要消费的食物</param>
@@ -219,11 +282,8 @@ public class VRFoodConsumer : MonoBehaviour
             characterStatus.isSlackingAtWork = true;
         }
 
-        // 显示吃东西特效
-        if (eatingEffect != null)
-        {
-            eatingEffect.SetActive(true);
-        }
+        // 开始吃东西粒子特效
+        StartEatingEffect();
 
         Debug.Log($"开始食用: {foodItem.foodName}");
 
@@ -260,11 +320,8 @@ public class VRFoodConsumer : MonoBehaviour
             Debug.Log($"获得速度加成: {effect.speedMultiplier}x, 持续{effect.speedBoostDuration}秒");
         }
 
-        // 隐藏吃东西特效
-        if (eatingEffect != null)
-        {
-            eatingEffect.SetActive(false);
-        }
+        // 停止吃东西粒子特效
+        StopEatingEffect();
 
         // 消费食物（删除物体）
         foodItem.OnConsume();
@@ -395,11 +452,8 @@ public class VRFoodConsumer : MonoBehaviour
         {
             StopCoroutine(eatingCoroutine);
 
-            // 隐藏特效
-            if (eatingEffect != null)
-            {
-                eatingEffect.SetActive(false);
-            }
+            // 停止粒子特效
+            StopEatingEffect();
 
             isEating = false;
 
@@ -494,6 +548,15 @@ public class VRFoodConsumer : MonoBehaviour
             // 绘制圆锥末端的中心点
             Gizmos.color = Color.green;
             Gizmos.DrawWireSphere(coneEndCenter, 0.05f);
+        }
+    }
+
+    void OnDestroy()
+    {
+        // 确保销毁时清理粒子特效
+        if (currentEatingEffect != null)
+        {
+            Destroy(currentEatingEffect.gameObject);
         }
     }
 }
